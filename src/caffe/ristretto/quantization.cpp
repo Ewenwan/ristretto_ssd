@@ -1,8 +1,12 @@
+#include <cstdio>
+#include <map>
+
 #include "boost/algorithm/string.hpp"
+
 
 #include "caffe/caffe.hpp"
 #include "ristretto/quantization.hpp"
-
+#include "caffe/util/bbox_util.hpp"
 
 using caffe::Caffe;
 using caffe::Net;
@@ -11,6 +15,7 @@ using caffe::vector;
 using caffe::Blob;
 using caffe::LayerParameter;
 using caffe::NetParameter;
+using namespace std;
 
 Quantization::Quantization(string model, string weights, string model_quantized,
       int iterations, string trimming_mode, double error_margin, string gpus) {
@@ -100,6 +105,124 @@ void Quantization::SetGpu() {
   }
 }
 
+
+void Quantization::EvaluateDetection(const int iterations, 
+	Net<float>* caffe_net, float* accuracy, const bool do_stats,
+	const int score_number) {
+  //CHECK(Caffe::root_solver());
+  //LOG(INFO) << "Iteration " << iter_
+  //          << ", Testing net (#" << test_net_id << ")";
+  //CHECK_NOTNULL(test_nets_[test_net_id].get())->
+      //ShareTrainedLayersWith(net_.get());
+  map<int, map<int, vector<pair<float, int> > > > all_true_pos;
+  map<int, map<int, vector<pair<float, int> > > > all_false_pos;
+  map<int, map<int, int> > all_num_pos;
+  Net<float>*  test_net = caffe_net;
+  float loss = 0;
+  for (int i = 0; i < iterations; ++i) {
+    float iter_loss;
+    if(do_stats) {
+      caffe_net->RangeInLayers(&layer_names_, &max_in_, &max_out_,
+          &max_params_);
+    }
+    const vector<Blob<float>*>& result = test_net->Forward(&iter_loss);
+    loss += iter_loss;
+    if (!do_stats) {
+    for (int j = 0; j < result.size(); ++j) {
+      CHECK_EQ(result[j]->width(), 5);
+      const float* result_vec = result[j]->cpu_data();
+      int num_det = result[j]->height();
+      for (int k = 0; k < num_det; ++k) {
+        int item_id = static_cast<int>(result_vec[k * 5]);
+        int label = static_cast<int>(result_vec[k * 5 + 1]);
+        if (item_id == -1) {
+          // Special row of storing number of positives for a label.
+          if (all_num_pos[j].find(label) == all_num_pos[j].end()) {
+            all_num_pos[j][label] = static_cast<int>(result_vec[k * 5 + 2]);
+          } else {
+            all_num_pos[j][label] += static_cast<int>(result_vec[k * 5 + 2]);
+          }
+        } else {
+          // Normal row storing detection status.
+          float score = result_vec[k * 5 + 2];
+          int tp = static_cast<int>(result_vec[k * 5 + 3]);
+          int fp = static_cast<int>(result_vec[k * 5 + 4]);
+          if (tp == 0 && fp == 0) {
+            // Ignore such case. It happens when a detection bbox is matched to
+            // a difficult gt bbox and we don't evaluate on difficult gt bbox.
+            continue;
+          }
+          all_true_pos[j][label].push_back(std::make_pair(score, tp));
+          all_false_pos[j][label].push_back(std::make_pair(score, fp));
+        }
+      }
+    }
+    }
+  }
+
+    loss /= iterations;
+    LOG(INFO) << "Test loss: " << loss;
+
+  float mAP = 0.;
+  if (!do_stats) {
+  for (int i = 0; i < all_true_pos.size(); ++i) {
+    if (all_true_pos.find(i) == all_true_pos.end()) {
+      LOG(FATAL) << "Missing output_blob true_pos: " << i;
+    }
+    const map<int, vector<pair<float, int> > >& true_pos =
+        all_true_pos.find(i)->second;
+    if (all_false_pos.find(i) == all_false_pos.end()) {
+      LOG(FATAL) << "Missing output_blob false_pos: " << i;
+    }
+    const map<int, vector<pair<float, int> > >& false_pos =
+        all_false_pos.find(i)->second;
+    if (all_num_pos.find(i) == all_num_pos.end()) {
+      LOG(FATAL) << "Missing output_blob num_pos: " << i;
+    }
+    const map<int, int>& num_pos = all_num_pos.find(i)->second;
+    map<int, float> APs;
+    
+    // Sort true_pos and false_pos with descend scores.
+    for (map<int, int>::const_iterator it = num_pos.begin();
+         it != num_pos.end(); ++it) {
+      int label = it->first;
+      int label_num_pos = it->second;
+      if (true_pos.find(label) == true_pos.end()) {
+        LOG(WARNING) << "Missing true_pos for label: " << label;
+        continue;
+      }
+      const vector<pair<float, int> >& label_true_pos =
+          true_pos.find(label)->second;
+      if (false_pos.find(label) == false_pos.end()) {
+        LOG(WARNING) << "Missing false_pos for label: " << label;
+        continue;
+      }
+      const vector<pair<float, int> >& label_false_pos =
+          false_pos.find(label)->second;
+      vector<float> prec, rec;
+      caffe::ComputeAP(label_true_pos, label_num_pos, label_false_pos,
+                "11point", &prec, &rec, &(APs[label]));
+      mAP += APs[label];
+    }
+    mAP /= num_pos.size();
+ //   const int output_blob_index = test_net->output_blob_indices()[i];
+ //   const string& output_name = test_net->blob_names()[output_blob_index];
+ //   LOG(INFO) << "    Test net output #" << i << ": " << output_name << " = "
+ //             << mAP;
+  }
+  }
+  LOG(INFO) << "accuracy : " << mAP;
+  *accuracy = mAP;
+}
+
+void Quantization::RunForwardBatches(const int iterations,
+      Net<float>* caffe_net, float* accuracy, const bool do_stats,
+      const int score_number) {
+	EvaluateDetection(iterations, caffe_net, accuracy, do_stats, score_number);	
+ 
+}
+
+/*
 void Quantization::RunForwardBatches(const int iterations,
       Net<float>* caffe_net, float* accuracy, const bool do_stats,
       const int score_number) {
@@ -107,12 +230,31 @@ void Quantization::RunForwardBatches(const int iterations,
   vector<Blob<float>* > bottom_vec;
   vector<int> test_score_output_id;
   vector<float> test_score;
+  
   float loss = 0;
   for (int i = 0; i < iterations; ++i) {
     float iter_loss;
+    vector<Blob<float>*> result;
     // Do forward propagation.
-    const vector<Blob<float>*>& result =
-        caffe_net->Forward(bottom_vec, &iter_loss);
+    if (!do_stats) {
+      //const vector<Blob<float>*>& result1 =
+          //caffe_net->Forward(bottom_vec, &iter_loss);
+
+      float mAP;
+      //const vector<Blob<float>*> result;
+      Blob<float>* blob_input_(new Blob<float>());
+      result.push_back(blob_input_);
+      vector<int> top_shape(0);
+      result[0]->Reshape(top_shape);
+      //mAP =  EvaluateDetection(result1);
+	mAP =  EvaluateDetection(caffe_net, );
+      result[0]->mutable_cpu_data()[0] = mAP;
+    }
+    else {
+      //const vector<Blob<float>*>& result = caffe_net->Forward(bottom_vec, &iter_loss);
+      result = caffe_net->Forward(bottom_vec, &iter_loss);
+    }
+
     // Find maximal values in network.
     if(do_stats) {
       caffe_net->RangeInLayers(&layer_names_, &max_in_, &max_out_,
@@ -154,7 +296,7 @@ void Quantization::RunForwardBatches(const int iterations,
   }
   *accuracy = test_score[score_number] / iterations;
 }
-
+*/
 void Quantization::Quantize2DynamicFixedPoint() {
   // Find the integer length for dynamic fixed point numbers.
   // The integer length is chosen such that no saturation occurs.
@@ -182,7 +324,7 @@ void Quantization::Quantize2DynamicFixedPoint() {
   vector<float> test_scores_conv_params;
   float accuracy;
   Net<float>* net_test;
-  for (int bitwidth = 16; bitwidth > 0; bitwidth /= 2) {
+  for (int bitwidth = 8; bitwidth > 0; bitwidth -= 1) {
     EditNetDescriptionDynamicFixedPoint(&param, "Convolution", "Parameters",
         bitwidth, -1, -1, -1);
     net_test = new Net<float>(param, NULL);
@@ -191,7 +333,7 @@ void Quantization::Quantize2DynamicFixedPoint() {
     test_bw_conv_params.push_back(bitwidth);
     test_scores_conv_params.push_back(accuracy);
     delete net_test;
-    if ( accuracy + error_margin_ / 100 < test_score_baseline_ ) break;
+    //if ( accuracy + error_margin_ / 100 < test_score_baseline_ ) break;
   }
 
   // Score net with dynamic fixed point inner product parameters.
@@ -200,7 +342,7 @@ void Quantization::Quantize2DynamicFixedPoint() {
   param.mutable_state()->set_phase(caffe::TEST);
   vector<int> test_bw_fc_params;
   vector<float> test_scores_fc_params;
-  for (int bitwidth = 16; bitwidth > 0; bitwidth /= 2) {
+  for (int bitwidth = 8; bitwidth > 0; bitwidth -= 1) {
     EditNetDescriptionDynamicFixedPoint(&param, "InnerProduct", "Parameters",
         -1, bitwidth, -1, -1);
     net_test = new Net<float>(param, NULL);
@@ -209,7 +351,7 @@ void Quantization::Quantize2DynamicFixedPoint() {
     test_bw_fc_params.push_back(bitwidth);
     test_scores_fc_params.push_back(accuracy);
     delete net_test;
-    if ( accuracy + error_margin_ / 100 < test_score_baseline_ ) break;
+    //if ( accuracy + error_margin_ / 100 < test_score_baseline_ ) break;
   }
 
   // Score net with dynamic fixed point layer activations.
@@ -218,7 +360,7 @@ void Quantization::Quantize2DynamicFixedPoint() {
   param.mutable_state()->set_phase(caffe::TEST);
   vector<int> test_bw_layer_activations;
   vector<float> test_scores_layer_activations;
-  for (int bitwidth = 16; bitwidth > 0; bitwidth /= 2) {
+  for (int bitwidth = 8; bitwidth > 0; bitwidth -= 1) {
     EditNetDescriptionDynamicFixedPoint(&param, "Convolution_and_InnerProduct",
         "Activations", -1, -1, bitwidth, bitwidth);
     net_test = new Net<float>(param, NULL);

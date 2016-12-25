@@ -56,8 +56,19 @@ void SoftmaxWithLossLayer<Dtype>::Forward_gpu(
       has_ignore_label_) {
     caffe_gpu_asum(nthreads, counts, &valid_count);
   }
-  top[0]->mutable_cpu_data()[0] = loss / get_normalizer(normalization_,
-                                                        valid_count);
+  /**
+   * Krishna Chaitanya Chakka
+   * Below is for Squeezenet
+   */ 
+  //top[0]->mutable_cpu_data()[0] = loss / get_normalizer(normalization_, valid_count);
+
+  Dtype normalizer = LossLayer<Dtype>::GetNormalizer(
+      normalization_, outer_num_, inner_num_, valid_count);
+
+
+  top[0]->mutable_cpu_data()[0] = loss / normalizer;
+
+  
   if (top.size() == 2) {
     top[1]->ShareData(prob_);
   }

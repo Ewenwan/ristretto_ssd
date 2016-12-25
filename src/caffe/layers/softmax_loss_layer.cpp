@@ -108,7 +108,20 @@ void SoftmaxWithLossLayer<Dtype>::Forward_cpu(
       ++count;
     }
   }
-  top[0]->mutable_cpu_data()[0] = loss / get_normalizer(normalization_, count);
+  Dtype normalizer = LossLayer<Dtype>::GetNormalizer(
+      normalization_, outer_num_, inner_num_, count);
+
+   /**
+    * Krishna Chaitanya Chakka
+    * Change for squeezenet
+    */
+  //top[0]->mutable_cpu_data()[0] = loss / get_normalizer(normalization_, count);
+  /**
+   * Krishna Chaitanya Chakka
+   *  Change for SSD
+   */ 
+  top[0]->mutable_cpu_data()[0] = loss / normalizer;
+
   if (top.size() == 2) {
     top[1]->ShareData(prob_);
   }

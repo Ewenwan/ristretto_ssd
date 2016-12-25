@@ -6,8 +6,8 @@ EXAMPLE=examples/imagenet
 DATA=data/ilsvrc12
 TOOLS=build/tools
 
-TRAIN_DATA_ROOT=/path/to/imagenet/train/
-VAL_DATA_ROOT=/path/to/imagenet/val/
+TRAIN_DATA_ROOT=/var/services/homes/kchakka/imagenet/
+VAL_DATA_ROOT=/var/services/homes/kchakka/imagenet/
 
 # Set RESIZE=true to resize the images to 256x256. Leave as false if images have
 # already been resized using another tool.
@@ -41,7 +41,7 @@ GLOG_logtostderr=1 $TOOLS/convert_imageset \
     --resize_width=$RESIZE_WIDTH \
     --shuffle \
     $TRAIN_DATA_ROOT \
-    $DATA/train.txt \
+    $DATA/val.txt \
     $EXAMPLE/ilsvrc12_train_lmdb
 
 echo "Creating val lmdb..."

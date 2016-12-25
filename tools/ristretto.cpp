@@ -34,7 +34,7 @@ DEFINE_string(model_quantized, "",
     "The output path of the quantized net");
 DEFINE_string(gpu, "",
     "Optional: Run in GPU mode on given device ID.");
-DEFINE_int32(iterations, 50,
+DEFINE_int32(iterations, 1,
     "Optional: The number of iterations to run.");
 DEFINE_double(error_margin, 2,
     "Optional: the allowed accuracy drop in %");

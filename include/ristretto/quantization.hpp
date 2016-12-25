@@ -2,10 +2,12 @@
 #define QUANTIZATION_HPP_
 
 #include "caffe/caffe.hpp"
+#include <map>
 
 using caffe::string;
 using caffe::vector;
 using caffe::Net;
+using caffe::Blob;
 
 /**
  * @brief Approximate 32-bit floating point networks.
@@ -21,6 +23,8 @@ public:
 private:
   void CheckWritePermissions(const string path);
   void SetGpu();
+  void EvaluateDetection(const int iterations, Net<float>* caffe_net,
+      float* accuracy, const bool do_stats, const int score_number);
   /**
    * @brief Score network.
    * @param accuracy Reports the network's accuracy according to
