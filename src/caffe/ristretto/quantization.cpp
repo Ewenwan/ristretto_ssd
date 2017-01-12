@@ -324,7 +324,7 @@ void Quantization::Quantize2DynamicFixedPoint() {
   vector<float> test_scores_conv_params;
   float accuracy;
   Net<float>* net_test;
-  for (int bitwidth = 8; bitwidth > 0; bitwidth -= 1) {
+  for (int bitwidth = 16; bitwidth > 0; bitwidth /= 2) {
     EditNetDescriptionDynamicFixedPoint(&param, "Convolution", "Parameters",
         bitwidth, -1, -1, -1);
     net_test = new Net<float>(param, NULL);
@@ -342,7 +342,7 @@ void Quantization::Quantize2DynamicFixedPoint() {
   param.mutable_state()->set_phase(caffe::TEST);
   vector<int> test_bw_fc_params;
   vector<float> test_scores_fc_params;
-  for (int bitwidth = 8; bitwidth > 0; bitwidth -= 1) {
+  for (int bitwidth = 16; bitwidth > 0; bitwidth /= 2) {
     EditNetDescriptionDynamicFixedPoint(&param, "InnerProduct", "Parameters",
         -1, bitwidth, -1, -1);
     net_test = new Net<float>(param, NULL);
@@ -360,7 +360,7 @@ void Quantization::Quantize2DynamicFixedPoint() {
   param.mutable_state()->set_phase(caffe::TEST);
   vector<int> test_bw_layer_activations;
   vector<float> test_scores_layer_activations;
-  for (int bitwidth = 8; bitwidth > 0; bitwidth -= 1) {
+  for (int bitwidth = 16; bitwidth > 0; bitwidth /= 2) {
     EditNetDescriptionDynamicFixedPoint(&param, "Convolution_and_InnerProduct",
         "Activations", -1, -1, bitwidth, bitwidth);
     net_test = new Net<float>(param, NULL);

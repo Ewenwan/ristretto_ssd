@@ -23,12 +23,12 @@
 
 ### Preparation
 1. Download [trained PASCAL VOC models(07 + 12)](www.cs.unc.edu/%7Ewliu/projects/SSD/models_VGGNet_VOC0712_SSD_300x300.tar.gz).
-```Shell
+   ```Shell
    cd $HOME
    tar -zxvf models_VGGNet_VOC0712_SSD_300x300.tar.gz
-```
+   ```
    This will create the following files
-```Shell
+   ```Shell
    models/VGGNet/VOC0712/SSD_300x300/
    models/VGGNet/VOC0712/SSD_300x300/test.prototxt
    models/VGGNet/VOC0712/SSD_300x300/deploy.prototxt
@@ -37,7 +37,7 @@
    models/VGGNet/VOC0712/SSD_300x300/train.prototxt
    models/VGGNet/VOC0712/SSD_300x300/ssd_pascal.py
    models/VGGNet/VOC0712/SSD_300x300/score_ssd_pascal.py
-```
+   ```
 
 2. Download VOC2007 and VOC2012 dataset. By default, we assume the data is stored in `$HOME/data/`
   ```Shell
@@ -74,12 +74,7 @@
 5. Run the following command to create the fixed point version of the ssd model
 
 ```Shell
-   ./build/tools/ristretto quantize \
-        --model=models/VGGNet/VOC0712/SSD_300x300/train.prototxt \
-        --weights=models/VGGNet/VOC0712/SSD_300x300/VGG_VOC0712_SSD_300x300_iter_120000.caffemodel \
-        --model_quantized=models/ssd/quantized.prototxt \
-        --trimming_mode=dynamic_fixed_point --gpu=0 --iterations=2000 \
-        --error_margin=3
+   ./examples/ssd/00_quantize_ssdnet.sh
 ```
 
 
