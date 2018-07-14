@@ -24,6 +24,7 @@ using caffe::Timer;// 计时模块
 using caffe::vector;
 using std::ostringstream;
 
+// 首先需要 使用 gflags的宏：DEFINE_xxxxx(变量名，默认值，help-string)  定义命令行参数
 // 模型框架文件
 DEFINE_string(model, "",
     "The model definition protocol buffer text file..");
