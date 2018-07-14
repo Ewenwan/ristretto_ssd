@@ -70,7 +70,7 @@ using caffe::Timer;
 using caffe::vector;
 using std::ostringstream;
 
-
+//  首先需要 使用 gflags的宏：DEFINE_xxxxx(变量名，默认值，help-string)  定义命令行参数==============
 // gflags.h 参数 gpu序列
 DEFINE_string(gpu, "",
     "Optional; run in GPU mode on given device IDs separated by ','."
