@@ -119,10 +119,12 @@ RegisterBrewFunction(quantize);
 int main(int argc, char** argv) {
   // Print output to stderr (while still logging).
   FLAGS_alsologtostderr = 1;
-  // Set version
+	
+// 定制你自己的help信息与version信息：(gflags里面已经定义了-h和--version，你可以通过以下方式定制它们的内容)	
+  // Set version 版本信息
   gflags::SetVersionString(AS_STRING(CAFFE_VERSION));
   // Usage message.
-   // 工具命令行参数
+   // 工具命令行参数 帮助信息
   gflags::SetUsageMessage("command line brew\n"
       "usage: ristretto <command> <args>\n\n"
       "commands:\n"
