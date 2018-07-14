@@ -24,7 +24,11 @@ using caffe::Timer;// 计时模块
 using caffe::vector;
 using std::ostringstream;
 
-// 首先需要 使用 gflags的宏：DEFINE_xxxxx(变量名，默认值，help-string)  定义命令行参数
+//首先需要 使用 gflags的宏：DEFINE_xxxxx(变量名，默认值，help-string)  定义命令行参数=========================
+// 使用 google::ParseCommandLineFlags(&argc, &argv, true); 解析后
+// 就可以使用 FLAGS_  变量名访问对应的命令行参数了
+// 例如 FLAGS_model    FLAGS_weights    FLAGS_trimming_mode   FLAGS_gpu    FLAGS_iterations   FLAGS_error_margin
+
 // 模型框架文件
 DEFINE_string(model, "",
     "The model definition protocol buffer text file..");
