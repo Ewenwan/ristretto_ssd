@@ -18,13 +18,20 @@ using caffe::Blob;
 class Quantization {
 public:
   explicit Quantization(string model, string weights, string model_quantized,
-      int iterations, string trimming_mode, double error_margin, string gpus);
+      int iterations, string trimming_mode, double error_margin, string gpus, string net_type);
   void QuantizeNet();
 private:
   void CheckWritePermissions(const string path);
   void SetGpu();
+  // 检测网络评估
   void EvaluateDetection(const int iterations, Net<float>* caffe_net,
       float* accuracy, const bool do_stats, const int score_number);
+  // 分类网络评估
+  void EvaluateClassification(const int iterations, Net<float>* caffe_net, 
+      float* accuracy, const bool do_stats, const int score_number);
+  
+  
+  
   /**
    * @brief Score network.
    * @param accuracy Reports the network's accuracy according to
@@ -35,7 +42,8 @@ private:
    * For networks with multiple accuracy layers, set score_number to the
    * appropriate value. For example, for BVLC GoogLeNet, use score_number=7.
    */
-  void RunForwardBatches(const int iterations, Net<float>* caffe_net,
+   // 计算模型准确度(适应度值)
+  void RunForwardBatches(const string& net_type, const int iterations, Net<float>* caffe_net,
       float* accuracy, const bool do_stats = false, const int score_number = 0);
   /**
    * @brief Quantize convolutional and fully connected layers to dynamic fixed
@@ -104,6 +112,11 @@ private:
   string trimming_mode_;
   double error_margin_;
   string gpus_;
+///////////////////////////////////////
+  string net_type_;// 网络类型 分类/检测(ssd/yolo)
+  
+  
+////////////////////////////////////////////
   float test_score_baseline_;
   // The maximal absolute values of layer inputs, parameters and
   // layer outputs.
