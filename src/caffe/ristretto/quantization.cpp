@@ -1,11 +1,12 @@
 #include <cstdio>
-#include <map>
 
 #include "boost/algorithm/string.hpp"
 
 
 #include "caffe/caffe.hpp"
 #include "ristretto/quantization.hpp"
+/////  支持 检测输出 的头文件 使用map存储结果 进行分析
+#include <map>
 #include "caffe/util/bbox_util.hpp"
 
 using caffe::Caffe;
@@ -15,53 +16,74 @@ using caffe::vector;
 using caffe::Blob;
 using caffe::LayerParameter;
 using caffe::NetParameter;
+//////////////////////
 using namespace std;
 
+// 对象  构造函数
 Quantization::Quantization(string model, string weights, string model_quantized,
-      int iterations, string trimming_mode, double error_margin, string gpus) {
-  this->model_ = model;
-  this->weights_ = weights;
-  this->model_quantized_ = model_quantized;
-  this->iterations_ = iterations;
-  this->trimming_mode_ = trimming_mode;
-  this->error_margin_ = error_margin;
-  this->gpus_ = gpus;
+      int iterations, string trimming_mode, double error_margin, string gpus, string net_type) {
+  this->model_   = model;  // 原模型 prototxt 框架文件
+  this->weights_ = weights;// 对应权重
+  this->model_quantized_ = model_quantized;// 量化后的  prototxt 框架文件 加入了量化卷积层等
+  this->iterations_ = iterations;// 量化迭代次数
+  this->trimming_mode_ = trimming_mode;// 量化方法
+  this->error_margin_ = error_margin;// 误差赋值裕度 %
+  this->gpus_ = gpus;// 使用的 gpu
+  
+  /////////////////////////////////
+  this->net_type_ = net_type;// 网络类型 分类/检测(ssd/yolo)
 
   // Could possibly improve choice of exponent. Experiments show LeNet needs
   // 4bits, but the saturation border is at 3bits (when assuming infinitely long
   // mantisssa).
-  this->exp_bits_ = 4;
+  this->exp_bits_ = 4;// 指数位大小
 }
 
+// 执行量化================================
 void Quantization::QuantizeNet() {
-  CheckWritePermissions(model_quantized_);
-  SetGpu();
+  CheckWritePermissions(model_quantized_);//量化后的  prototxt 框架文件 写权限
+  SetGpu();// 设置gpu模式
   // Run the reference floating point network on validation set to find baseline
   // accuracy.
-  Net<float>* net_val = new Net<float>(model_, caffe::TEST);
-  net_val->CopyTrainedLayersFrom(weights_);
+  
+// 首先 获取原有网络准确度==========================================
+  // 
+  Net<float>* net_val = new Net<float>(model_, caffe::TEST);// 测试网络
+  net_val->CopyTrainedLayersFrom(weights_);//载入原来模型 对应的 模型权重
   float accuracy;
-  RunForwardBatches(this->iterations_, net_val, &accuracy);
+  // 获取指定网络的前向传播精度  这里需要区分 分了和检测网络 可参考 solver.cpp 中的测试部分
+  RunForwardBatches(this->net_type_, this->iterations_, net_val, &accuracy);
   test_score_baseline_ = accuracy;
-  delete net_val;
+  delete net_val;// 删除测试网络
+  
+  
   // Run the reference floating point network on train data set to find maximum
   // values. Do statistic for 10 batches.
-  Net<float>* net_test = new Net<float>(model_, caffe::TRAIN);
-  net_test->CopyTrainedLayersFrom(weights_);
-  RunForwardBatches(10, net_test, &accuracy, true);
-  delete net_test;
+  Net<float>* net_test = new Net<float>(model_, caffe::TRAIN);// 训练网络
+  net_test->CopyTrainedLayersFrom(weights_);//载入原来模型 对应的 模型权重
+  RunForwardBatches(this->net_type_, 10, net_test, &accuracy, true);
+  delete net_test;// 删除 训练网络
   // Do network quantization and scoring.
-  if (trimming_mode_ == "dynamic_fixed_point") {
-    Quantize2DynamicFixedPoint();
-  } else if (trimming_mode_ == "minifloat") {
-    Quantize2MiniFloat();
-  } else if (trimming_mode_ == "integer_power_of_2_weights") {
-    Quantize2IntegerPowerOf2Weights();
-  } else {
+  
+  // 根据不同的量化策略对原网络进行量化
+  if (trimming_mode_ == "dynamic_fixed_point") 
+  {
+    Quantize2DynamicFixedPoint();// 动态固定点
+  } 
+  else if (trimming_mode_ == "minifloat") 
+  {
+    Quantize2MiniFloat();// 迷你浮点 16=1+10+1   
+  } 
+  else if (trimming_mode_ == "integer_power_of_2_weights") 
+  {
+    Quantize2IntegerPowerOf2Weights();// 2方 多比特位
+  } 
+  else {
     LOG(FATAL) << "Unknown trimming mode: " << trimming_mode_;
   }
 }
 
+// 文件读写权限===========================================
 void Quantization::CheckWritePermissions(const string path) {
   std::ofstream probe_ofs(path.c_str());
   if (probe_ofs.good()) {
@@ -71,11 +93,11 @@ void Quantization::CheckWritePermissions(const string path) {
     LOG(FATAL) << "Missing write permissions";
   }
 }
-
+// GPU =================================
 void Quantization::SetGpu() {
   // Parse GPU ids or use all available devices
   vector<int> gpus;
-  if (gpus_ == "all") {
+  if (gpus_ == "all") {// 所以可用的GPU
     int count = 0;
 #ifndef CPU_ONLY
     CUDA_CHECK(cudaGetDeviceCount(&count));
@@ -105,10 +127,95 @@ void Quantization::SetGpu() {
   }
 }
 
+// 获取指定网络的前向传播精度  这里需要区分 分了和检测网络 可参考 solver.cpp 中的测试部分
+void Quantization::RunForwardBatches(const string& net_type, const int iterations,
+      Net<float>* caffe_net, float* accuracy, const bool do_stats,
+      const int score_number) {
+ // EvaluateDetection(iterations, caffe_net, accuracy, do_stats, score_number);
+ ////////////////////
+//Test(test_net_id); // 分类网络测试 或者 检测网络测试
+    if ( net_type == "classification" ) 
+    {// 分类网络测试评估结果
+      EvaluateClassification(iterations, caffe_net, accuracy, do_stats, score_number);
+    } 
+    else if ( net_type == "ssd_detection" ) 
+    {// 检测网络测试评估结果
+      EvaluateDetection(iterations, caffe_net, accuracy, do_stats, score_number);
+    } 
+    else 
+    {
+      LOG(FATAL) << "Unknown evaluation type: " << net_type ;
+    }
+///////////////////////////////
+}
 
+// 分类网络评估=====================================
+void Quantization::EvaluateClassification(const int iterations, 
+    Net<float>* caffe_net, float* accuracy, const bool do_stats,
+    const int score_number) {
+
+  LOG(INFO) << "Running for EvaluateClassification " << iterations << " iterations.";
+  
+  vector<Blob<float>* > bottom_vec;
+  vector<int> test_score_output_id;
+  vector<float> test_score;
+  float loss = 0;
+  for (int i = 0; i < iterations; ++i) {
+    float iter_loss;
+    // Do forward propagation.
+    const vector<Blob<float>*>& result =
+        caffe_net->Forward(bottom_vec, &iter_loss);
+    // Find maximal values in network.
+    if(do_stats) {
+      caffe_net->RangeInLayers(&layer_names_, &max_in_, &max_out_,
+          &max_params_);
+    }
+    // Keep track of network score over multiple batches.
+    loss += iter_loss;
+    int idx = 0;
+    for (int j = 0; j < result.size(); ++j) {
+      const float* result_vec = result[j]->cpu_data();
+      for (int k = 0; k < result[j]->count(); ++k, ++idx) {
+        const float score = result_vec[k];
+        if (i == 0) {
+          test_score.push_back(score);
+          test_score_output_id.push_back(j);
+        } else {
+          test_score[idx] += score;
+        }
+        const std::string& output_name = caffe_net->blob_names()[
+            caffe_net->output_blob_indices()[j]];
+        LOG(INFO) << "Batch " << i << ", " << output_name << " = " << score;
+      }
+    }
+  }
+  loss /= iterations;
+  LOG(INFO) << "Loss: " << loss;
+  for (int i = 0; i < test_score.size(); ++i) {
+    const std::string& output_name = caffe_net->blob_names()[
+        caffe_net->output_blob_indices()[test_score_output_id[i]]];
+    const float loss_weight = caffe_net->blob_loss_weights()[
+        caffe_net->output_blob_indices()[test_score_output_id[i]]];
+    std::ostringstream loss_msg_stream;
+    const float mean_score = test_score[i] / iterations;
+    if (loss_weight) {
+      loss_msg_stream << " (* " << loss_weight
+                      << " = " << loss_weight * mean_score << " loss)";
+    }
+    LOG(INFO) << output_name << " = " << mean_score << loss_msg_stream.str();
+  }
+  *accuracy = test_score[score_number] / iterations;
+
+  }
+
+// 检测网络评估==========================================
+// 参考 ssd/solver.cpp 中的TestDetection()
 void Quantization::EvaluateDetection(const int iterations, 
-	Net<float>* caffe_net, float* accuracy, const bool do_stats,
-	const int score_number) {
+    Net<float>* caffe_net, float* accuracy, const bool do_stats,
+    const int score_number) {
+  
+  LOG(INFO) << "Running for EvaluateDetection " << iterations << " iterations.";
+  
   //CHECK(Caffe::root_solver());
   //LOG(INFO) << "Iteration " << iter_
   //          << ", Testing net (#" << test_net_id << ")";
@@ -129,24 +236,27 @@ void Quantization::EvaluateDetection(const int iterations,
     loss += iter_loss;
     if (!do_stats) {
     for (int j = 0; j < result.size(); ++j) {
-      CHECK_EQ(result[j]->width(), 5);
+      // 目标检测结果维度
+      CHECK_EQ(result[j]->width(), 5);//
       const float* result_vec = result[j]->cpu_data();
+      // 总的检测结果数量
       int num_det = result[j]->height();
+      // 遍历每一个检测结果
       for (int k = 0; k < num_det; ++k) {
-        int item_id = static_cast<int>(result_vec[k * 5]);
-        int label = static_cast<int>(result_vec[k * 5 + 1]);
+        int item_id = static_cast<int>(result_vec[k * 5]);// id    
+        int label = static_cast<int>(result_vec[k * 5 + 1]);// 标签 label
         if (item_id == -1) {
           // Special row of storing number of positives for a label.
           if (all_num_pos[j].find(label) == all_num_pos[j].end()) {
-            all_num_pos[j][label] = static_cast<int>(result_vec[k * 5 + 2]);
+            all_num_pos[j][label] = static_cast<int>(result_vec[k * 5 + 2]);// 
           } else {
             all_num_pos[j][label] += static_cast<int>(result_vec[k * 5 + 2]);
           }
         } else {
           // Normal row storing detection status.
-          float score = result_vec[k * 5 + 2];
-          int tp = static_cast<int>(result_vec[k * 5 + 3]);
-          int fp = static_cast<int>(result_vec[k * 5 + 4]);
+          float score = result_vec[k * 5 + 2];// 得分
+          int tp = static_cast<int>(result_vec[k * 5 + 3]);//正确的位置预测 id
+          int fp = static_cast<int>(result_vec[k * 5 + 4]);//错误的预测id
           if (tp == 0 && fp == 0) {
             // Ignore such case. It happens when a detection bbox is matched to
             // a difficult gt bbox and we don't evaluate on difficult gt bbox.
@@ -161,7 +271,7 @@ void Quantization::EvaluateDetection(const int iterations,
   }
 
     loss /= iterations;
-    LOG(INFO) << "Test loss: " << loss;
+    LOG(INFO) << "Dection test loss: " << loss;
 
   float mAP = 0.;
   if (!do_stats) {
@@ -209,17 +319,10 @@ void Quantization::EvaluateDetection(const int iterations,
  //   const string& output_name = test_net->blob_names()[output_blob_index];
  //   LOG(INFO) << "    Test net output #" << i << ": " << output_name << " = "
  //             << mAP;
+   }
   }
-  }
-  LOG(INFO) << "accuracy : " << mAP;
+  LOG(INFO) << "accuracy : " << mAP << "mAP";
   *accuracy = mAP;
-}
-
-void Quantization::RunForwardBatches(const int iterations,
-      Net<float>* caffe_net, float* accuracy, const bool do_stats,
-      const int score_number) {
-	EvaluateDetection(iterations, caffe_net, accuracy, do_stats, score_number);	
- 
 }
 
 /*
@@ -297,6 +400,9 @@ void Quantization::RunForwardBatches(const int iterations,
   *accuracy = test_score[score_number] / iterations;
 }
 */
+
+
+/////////////////////// 动态固定点=======================================
 void Quantization::Quantize2DynamicFixedPoint() {
   // Find the integer length for dynamic fixed point numbers.
   // The integer length is chosen such that no saturation occurs.
@@ -329,7 +435,7 @@ void Quantization::Quantize2DynamicFixedPoint() {
         bitwidth, -1, -1, -1);
     net_test = new Net<float>(param, NULL);
     net_test->CopyTrainedLayersFrom(weights_);
-    RunForwardBatches(iterations_, net_test, &accuracy);
+    RunForwardBatches(this->net_type_, iterations_, net_test, &accuracy);
     test_bw_conv_params.push_back(bitwidth);
     test_scores_conv_params.push_back(accuracy);
     delete net_test;
@@ -347,7 +453,7 @@ void Quantization::Quantize2DynamicFixedPoint() {
         -1, bitwidth, -1, -1);
     net_test = new Net<float>(param, NULL);
     net_test->CopyTrainedLayersFrom(weights_);
-    RunForwardBatches(iterations_, net_test, &accuracy);
+    RunForwardBatches(this->net_type_, iterations_, net_test, &accuracy);
     test_bw_fc_params.push_back(bitwidth);
     test_scores_fc_params.push_back(accuracy);
     delete net_test;
@@ -365,7 +471,7 @@ void Quantization::Quantize2DynamicFixedPoint() {
         "Activations", -1, -1, bitwidth, bitwidth);
     net_test = new Net<float>(param, NULL);
     net_test->CopyTrainedLayersFrom(weights_);
-    RunForwardBatches(iterations_, net_test, &accuracy);
+    RunForwardBatches(this->net_type_, iterations_, net_test, &accuracy);
     test_bw_layer_activations.push_back(bitwidth);
     test_scores_layer_activations.push_back(accuracy);
     delete net_test;
@@ -409,7 +515,7 @@ void Quantization::Quantize2DynamicFixedPoint() {
       bw_out_);
   net_test = new Net<float>(param, NULL);
   net_test->CopyTrainedLayersFrom(weights_);
-  RunForwardBatches(iterations_, net_test, &accuracy);
+  RunForwardBatches(this->net_type_, iterations_, net_test, &accuracy);
   delete net_test;
   param.release_state();
   WriteProtoToTextFile(param, model_quantized_);
@@ -445,6 +551,7 @@ void Quantization::Quantize2DynamicFixedPoint() {
   LOG(INFO) << "Please fine-tune.";
 }
 
+////////////////////////////////// 迷你浮点 16=1+10+1  =====================================
 void Quantization::Quantize2MiniFloat() {
   // Find the necessary amount of exponent bits.
   // The exponent bits are chosen such that no saturation occurs.
@@ -470,7 +577,7 @@ void Quantization::Quantize2MiniFloat() {
     EditNetDescriptionMiniFloat(&param, bitwidth);
     net_test = new Net<float>(param, NULL);
     net_test->CopyTrainedLayersFrom(weights_);
-    RunForwardBatches(iterations_, net_test, &accuracy);
+    RunForwardBatches(this->net_type_, iterations_, net_test, &accuracy);
     test_bitwidth.push_back(bitwidth);
     test_scores.push_back(accuracy);
     delete net_test;
@@ -504,6 +611,8 @@ void Quantization::Quantize2MiniFloat() {
   LOG(INFO) << "Please fine-tune.";
 }
 
+
+/////////////////// 2方 多比特位====================================
 void Quantization::Quantize2IntegerPowerOf2Weights() {
   // Find the integer length for dynamic fixed point numbers.
   // The integer length is chosen such that no saturation occurs.
@@ -526,7 +635,7 @@ void Quantization::Quantize2IntegerPowerOf2Weights() {
       "Activations", -1, -1, 8, 8);
   net_test = new Net<float>(param, NULL);
   net_test->CopyTrainedLayersFrom(weights_);
-  RunForwardBatches(iterations_, net_test, &accuracy);
+  RunForwardBatches(this->net_type_, iterations_, net_test, &accuracy);
   delete net_test;
 
   // Write prototxt file of quantized net
@@ -545,6 +654,7 @@ void Quantization::Quantize2IntegerPowerOf2Weights() {
   LOG(INFO) << "Please fine-tune.";
 }
 
+///////////////////////////////////// 
 void Quantization::EditNetDescriptionDynamicFixedPoint(NetParameter* param,
       const string layers_2_quantize, const string net_part, const int bw_conv,
       const int bw_fc, const int bw_in, const int bw_out) {
@@ -552,7 +662,7 @@ void Quantization::EditNetDescriptionDynamicFixedPoint(NetParameter* param,
     // if this is a convolutional layer which should be quantized ...
     if (layers_2_quantize.find("Convolution") != string::npos &&
         param->layer(i).type().find("Convolution") != string::npos) {
-      // quantize parameters
+      // quantize parameters  量化卷积参数
       if (net_part.find("Parameters") != string::npos) {
         LayerParameter* param_layer = param->mutable_layer(i);
         param_layer->set_type("ConvolutionRistretto");
@@ -560,7 +670,7 @@ void Quantization::EditNetDescriptionDynamicFixedPoint(NetParameter* param,
             GetIntegerLengthParams(param->layer(i).name()));
         param_layer->mutable_quantization_param()->set_bw_params(bw_conv);
       }
-      // quantize activations
+      // quantize activations 量化激活层
       if (net_part.find("Activations") != string::npos) {
         LayerParameter* param_layer = param->mutable_layer(i);
         param_layer->set_type("ConvolutionRistretto");
@@ -576,7 +686,7 @@ void Quantization::EditNetDescriptionDynamicFixedPoint(NetParameter* param,
     if (layers_2_quantize.find("InnerProduct") != string::npos &&
         (param->layer(i).type().find("InnerProduct") != string::npos ||
         param->layer(i).type().find("FcRistretto") != string::npos)) {
-      // quantize parameters
+      // quantize parameters 量化全链接参数
       if (net_part.find("Parameters") != string::npos) {
         LayerParameter* param_layer = param->mutable_layer(i);
         param_layer->set_type("FcRistretto");
@@ -584,7 +694,7 @@ void Quantization::EditNetDescriptionDynamicFixedPoint(NetParameter* param,
             GetIntegerLengthParams(param->layer(i).name()));
         param_layer->mutable_quantization_param()->set_bw_params(bw_fc);
       }
-      // quantize activations
+      // quantize activations  量化激活层
       if (net_part.find("Activations") != string::npos) {
         LayerParameter* param_layer = param->mutable_layer(i);
         param_layer->set_type("FcRistretto");
