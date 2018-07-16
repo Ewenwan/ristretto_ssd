@@ -1,8 +1,10 @@
 #!/usr/bin/env sh
+#CaffeRoot = "../.."
 
-./build/tools/ristretto quantize \
-        --model=models/VGGNet/VOC0712/SSD_300x300/train.prototxt \
-        --weights=models/VGGNet/VOC0712/SSD_300x300/VGG_VOC0712_SSD_300x300_iter_120000.caffemodel \
-        --model_quantized=models/ssd/quantized.prototxt \
-        --trimming_mode=dynamic_fixed_point --gpu=0 --iterations=2000 \
-        --error_margin=3
+../../../build/tools/ristretto quantize \
+        --model=./ssd_33_voc_train_val.prototxt \
+        --weights=../src/models/ssd_33_iter_800.caffemodel \
+        --model_quantized=./ssd_33_voc_quantized.prototxt \
+        --trimming_mode=dynamic_fixed_point --gpu=4 --iterations=2000 \
+        --error_margin=3 \
+        --net_type=ssd_detection
