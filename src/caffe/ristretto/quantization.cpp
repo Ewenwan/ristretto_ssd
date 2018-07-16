@@ -171,6 +171,12 @@ void Quantization::EvaluateClassification(const int iterations,
           &max_params_);
     }
     // Keep track of network score over multiple batches.
+	  
+////////////////////////
+    LOG(INFO) << "iterations  " << i << "  :" << iter_loss;
+/////////////////////
+
+	  
     loss += iter_loss;
     int idx = 0;
     for (int j = 0; j < result.size(); ++j) {
@@ -233,6 +239,11 @@ void Quantization::EvaluateDetection(const int iterations,
           &max_params_);
     }
     const vector<Blob<float>*>& result = test_net->Forward(&iter_loss);
+   
+////////////////////////
+    LOG(INFO) << "iterations  " << i << "  :" << iter_loss;
+/////////////////////
+ 
     loss += iter_loss;
     if (!do_stats) {
     for (int j = 0; j < result.size(); ++j) {
