@@ -419,7 +419,7 @@ void TestDetection() {
     const vector<Blob<float>*>& result = caffe_net->Forward(&iter_loss);
     
 ////////////////////////
-    LOG(INFO) << "iterations  " << i << "  :" << iter_loss;
+    LOG(INFO) << "Forward loss iterations  " << i << "  :" << iter_loss;
 /////////////////////
 
     //if (param_.test_compute_loss()) {
