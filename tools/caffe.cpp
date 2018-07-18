@@ -16,6 +16,15 @@ namespace bp = boost::python;
 #include "caffe/caffe.hpp" // 包含各种头文件　blob，layer，net ,  solver 等
 #include "caffe/util/signal_handler.h"
 
+///////////////////////////////////////
+#include <map>
+#include <utility>
+#include "caffe/util/bbox_util.hpp"// ComputeAP()
+using namespace std;
+////////////////////////////////////////////
+
+
+
 using caffe::Blob; // 作为数据传输的媒介，无论是网络权重参数，还是输入数据，都是转化为Blob数据结构来存储
 // 可以把Blob看成一个有4维的结构体（包含数据和梯度），而实际上，它们只是一维的指针而已，其4维结构通过shape属性得以计算出来。
 // shared_ptr<SyncedMemory> data_ //数据
@@ -105,7 +114,13 @@ DEFINE_string(sighup_effect, "snapshot",
              "Optional; action to take when a SIGHUP signal is received: "
              "snapshot, stop or none.");
 
-// 层函数 注册函数
+// ========================== add net type ================
+// 分类网络/检测网络(ssd / yolo /faster_rcnn)
+DEFINE_string(net_type, "", "The net type");
+/////////////////////////////////////////
+
+
+// 函数 注册函数
 // A simple registry for caffe commands.
 typedef int (*BrewFunction)();// 函数指针
 typedef std::map<caffe::string, BrewFunction> BrewMap;
@@ -324,14 +339,187 @@ int train() {
 RegisterBrewFunction(train);
 
 
-// 测试一个模型 Test: score a model==============================================
-int test() {
+////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////
+// 分类网络 测试==========================================================
+//template <typename Dtype>
+void TestClassification() {
+  // Instantiate the caffe net.
+  Net<float> caffe_net(FLAGS_model, caffe::TEST);// 模型
+  caffe_net.CopyTrainedLayersFrom(FLAGS_weights);// 权重
+  LOG(INFO) << "Test Classification net running for " << FLAGS_iterations << " iterations.";
+
+  vector<int> test_score_output_id;
+  vector<float> test_score;
+  float loss = 0;
+  for (int i = 0; i < FLAGS_iterations; ++i) {
+    float iter_loss;
+    // 网络前传====================
+    const vector<Blob<float>*>& result =
+        caffe_net.Forward(&iter_loss);
+     
+    loss += iter_loss;// loss累加
+    int idx = 0;
+    for (int j = 0; j < result.size(); ++j) {
+      const float* result_vec = result[j]->cpu_data();
+      for (int k = 0; k < result[j]->count(); ++k, ++idx) {
+        const float score = result_vec[k];// 分类网络得分
+        if (i == 0) 
+        {
+          test_score.push_back(score);
+          test_score_output_id.push_back(j);
+        } 
+        else 
+        {
+          test_score[idx] += score;
+        }
+        const std::string& output_name = caffe_net.blob_names()[
+            caffe_net.output_blob_indices()[j]];
+        LOG(INFO) << "Batch " << i << ", " << output_name << " = " << score;
+      }
+    }
+  }
   
-    std::cout << "starting testing the model" << std::endl;
+  loss /= FLAGS_iterations;
+  LOG(INFO) << "Loss: " << loss;
+  for (int i = 0; i < test_score.size(); ++i) {
+    const std::string& output_name = caffe_net.blob_names()[
+        caffe_net.output_blob_indices()[test_score_output_id[i]]];
+    const float loss_weight = caffe_net.blob_loss_weights()[
+        caffe_net.output_blob_indices()[test_score_output_id[i]]];
+    std::ostringstream loss_msg_stream;
+    const float mean_score = test_score[i] / FLAGS_iterations;
+    if (loss_weight) {
+      loss_msg_stream << " (* " << loss_weight
+                      << " = " << loss_weight * mean_score << " loss)";
+    }
+    LOG(INFO) << output_name << " = " << mean_score << loss_msg_stream.str();
+  }
+}
+
+// 检测网络测试======================================================
+//template <typename Dtype>
+void TestDetection() {
+  // Instantiate the caffe net.
+  //Net<float> caffe_net(FLAGS_model, caffe::TEST);// 模型
+  Net<float>* caffe_net = new Net<float>(FLAGS_model, caffe::TEST);// 测试网络模型
+  caffe_net->CopyTrainedLayersFrom(FLAGS_weights);// 权重
+  LOG(INFO) << "Test Detection net running for " << FLAGS_iterations << " iterations.";
+
+  //SolverParameter param;
+  
+  map<int, map<int, vector<pair<float, int> > > > all_true_pos;
+  map<int, map<int, vector<pair<float, int> > > > all_false_pos;
+  map<int, map<int, int> > all_num_pos;
+  
+  float loss = 0;
+  for (int i = 0; i < FLAGS_iterations; ++i) {
+
+    float iter_loss;
+    const vector<Blob<float>*>& result = caffe_net->Forward(&iter_loss);
     
-    CHECK_GT(FLAGS_model.size(), 0) << "Need a model definition to score.";
-    CHECK_GT(FLAGS_weights.size(), 0) << "Need model weights to score.";
-    
+////////////////////////
+    LOG(INFO) << "iterations  " << i << "  :" << iter_loss;
+/////////////////////
+
+    //if (param_.test_compute_loss()) {
+      loss += iter_loss;// loss求和
+    //}
+    // 
+    for (int j = 0; j < result.size(); ++j) {
+      CHECK_EQ(result[j]->width(), 5);// 目标检测结果维度
+      const float* result_vec = result[j]->cpu_data();
+      int num_det = result[j]->height();// 总的检测结果数量
+      for (int k = 0; k < num_det; ++k) {
+        int item_id = static_cast<int>(result_vec[k * 5]);// id 
+        int label = static_cast<int>(result_vec[k * 5 + 1]);// 标签 label
+        if (item_id == -1) {
+          // Special row of storing number of positives for a label.
+          if (all_num_pos[j].find(label) == all_num_pos[j].end()) {
+            all_num_pos[j][label] = static_cast<int>(result_vec[k * 5 + 2]);
+          } else {
+            all_num_pos[j][label] += static_cast<int>(result_vec[k * 5 + 2]);
+          }
+        } else {
+          // Normal row storing detection status.
+          float score = result_vec[k * 5 + 2];// 得分
+          int tp = static_cast<int>(result_vec[k * 5 + 3]);//正确的位置预测
+          int fp = static_cast<int>(result_vec[k * 5 + 4]);//错误的预测id
+          if (tp == 0 && fp == 0) {
+            // Ignore such case. It happens when a detection bbox is matched to
+            // a difficult gt bbox and we don't evaluate on difficult gt bbox.
+            continue;
+          }
+          all_true_pos[j][label].push_back(std::make_pair(score, tp));
+          all_false_pos[j][label].push_back(std::make_pair(score, fp));
+        }
+      }
+    }
+  }
+
+  loss /= FLAGS_iterations;// loss 均值滤波
+  LOG(INFO) << "Dection test loss: " << loss;
+  
+  // 分析 结果================================
+  for (int i = 0; i < all_true_pos.size(); ++i) {
+    if (all_true_pos.find(i) == all_true_pos.end()) {
+      LOG(FATAL) << "Missing output_blob true_pos: " << i;
+    }
+    const map<int, vector<pair<float, int> > >& true_pos =
+        all_true_pos.find(i)->second;
+    if (all_false_pos.find(i) == all_false_pos.end()) {
+      LOG(FATAL) << "Missing output_blob false_pos: " << i;
+    }
+    const map<int, vector<pair<float, int> > >& false_pos =
+        all_false_pos.find(i)->second;
+    if (all_num_pos.find(i) == all_num_pos.end()) {
+      LOG(FATAL) << "Missing output_blob num_pos: " << i;
+    }
+    const map<int, int>& num_pos = all_num_pos.find(i)->second;
+    map<int, float> APs;
+    float mAP = 0.;
+    // Sort true_pos and false_pos with descend scores.
+    for (map<int, int>::const_iterator it = num_pos.begin();
+         it != num_pos.end(); ++it) {
+      int label = it->first;
+      int label_num_pos = it->second;
+      if (true_pos.find(label) == true_pos.end()) {
+        LOG(WARNING) << "Missing true_pos for label: " << label;
+        continue;
+      }
+      const vector<pair<float, int> >& label_true_pos =
+          true_pos.find(label)->second;
+      if (false_pos.find(label) == false_pos.end()) {
+        LOG(WARNING) << "Missing false_pos for label: " << label;
+        continue;
+      }
+      const vector<pair<float, int> >& label_false_pos =
+          false_pos.find(label)->second;
+      vector<float> prec, rec;
+     // ComputeAP 在 bbox_util.hpp :453  
+      caffe::ComputeAP(label_true_pos, label_num_pos, label_false_pos,
+                "11point", &prec, &rec, &(APs[label]));
+      mAP += APs[label];
+      //if (param_.show_per_class_result()) {
+      //  LOG(INFO) << "class" << label << ": " << APs[label];
+      //}
+    }
+    // 打印精度
+    mAP /= num_pos.size();// 计算均值 mAP
+    const int output_blob_index = caffe_net->output_blob_indices()[i];
+    const string& output_name = caffe_net->blob_names()[output_blob_index];
+    LOG(INFO) << "    Test detection net output #" << i << ": " << output_name << " = "
+              << mAP << "mAP";
+  }
+}
+//////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////
+// 测试一个网络 分类 top5   检测mAP50
+// Test: score a model.
+int test() {
+  CHECK_GT(FLAGS_model.size(), 0) << "Need a model definition to score.";
+  CHECK_GT(FLAGS_weights.size(), 0) << "Need model weights to score.";
+
   // 从gpu id序列字符串中获取 gpu id序列容器==============================
     // Set device id and mode
     vector<int> gpus;
@@ -352,63 +540,19 @@ int test() {
 	LOG(INFO) << "Use CPU.";
 	Caffe::set_mode(Caffe::CPU);//设置为CPU模式
     }
-    // 初始化网络模型========================================================
-    // Instantiate the caffe net.
-    Net<float> caffe_net(FLAGS_model, caffe::TEST);//根据模型框架文件定义一个测试网络
-    caffe_net.CopyTrainedLayersFrom(FLAGS_weights);//拷贝参数权重
-    LOG(INFO) << "Running for " << FLAGS_iterations << " iterations.";
-    
-  // 迭代测试=====================================================
-    vector<int> test_score_output_id;// 得分对应batch内的 id
-    vector<float> test_score;// 得分 这里记录的是叠加的得分
-    float loss = 0;
-    for (int i = 0; i < FLAGS_iterations; ++i)
-    {
-	float iter_loss;
-	// 网络前向传播 得到 iter_loss  和网络输出 result 
-	const vector<Blob<float>*>& result = caffe_net.Forward(&iter_loss);
-	
-	loss += iter_loss;// 损失 iter_loss 总和
-	int idx = 0;
-	for (int j = 0; j < result.size(); ++j) 
-	{
-	  const float* result_vec = result[j]->cpu_data();// 每个图像获得的结果
-	  for (int k = 0; k < result[j]->count(); ++k, ++idx) // 结果的每一个维度 
-	  {
-		const float score = result_vec[k];// 感觉这里是分类的得分?　待查　和caffe-ssd对比
-		if (i == 0) // 第一次迭代
-		{
-		  test_score.push_back(score);// 保存
-		  test_score_output_id.push_back(j);
-		} 
-		else
-		{
-		  test_score[idx] += score;//　对应这张图像这个维度的得分之和
-		}
-		const std::string& output_name = caffe_net.blob_names()[caffe_net.output_blob_indices()[j]];
-		LOG(INFO) << "Batch " << i << ", " << output_name << " = " << score;
-	  }
-	}
+  
+  ////////////////////
+//Test(test_net_id); // 分类网络测试 或者 检测网络测试
+    if (FLAGS_net_type == "classification") {
+      TestClassification();
+    } else if (FLAGS_net_type == "ssd_detection") {
+      TestDetection();
+    } else {
+      LOG(FATAL) << "Unknown evaluation type: " << FLAGS_net_type;
     }
-    loss /= FLAGS_iterations;// 损失求平均
-    
-    LOG(INFO) << "Loss: " << loss;
-    
-    for (int i = 0; i < test_score.size(); ++i) 
-    {
-	const std::string& output_name = caffe_net.blob_names()[caffe_net.output_blob_indices()[test_score_output_id[i]]];
-	const float loss_weight = caffe_net.blob_loss_weights()[caffe_net.output_blob_indices()[test_score_output_id[i]]];
-	std::ostringstream loss_msg_stream;
-	const float mean_score = test_score[i] / FLAGS_iterations;// 得分求平均
-	if (loss_weight) 
-	{
-	  loss_msg_stream << " (* " << loss_weight
-			  << " = " << loss_weight * mean_score << " loss)";
-	}
-	LOG(INFO) << output_name << " = " << mean_score << loss_msg_stream.str();
-    }
+///////////////////////////////
 
-    return 0;
+  return 0;
 }
 // 注册该函数到 g_brew_map (函数名与函数指针键值对map映射)==============================
 RegisterBrewFunction(test);
