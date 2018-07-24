@@ -274,6 +274,7 @@ void Net<Dtype>::Init(const NetParameter& in_param) {
   LOG_IF(INFO, Caffe::root_solver()) << "Network initialization done.";
 }
 
+// 滤出部分 层
 template <typename Dtype>
 void Net<Dtype>::FilterNet(const NetParameter& param,
     NetParameter* param_filtered) {
@@ -304,6 +305,8 @@ void Net<Dtype>::FilterNet(const NetParameter& param,
   }
 }
 
+
+    
 template <typename Dtype>
 bool Net<Dtype>::StateMeetsRule(const NetState& state,
     const NetStateRule& rule, const string& layer_name) {
@@ -370,45 +373,70 @@ bool Net<Dtype>::StateMeetsRule(const NetState& state,
   return true;
 }
 
+////////////////////////////////////////////
+// 找到 数据BOLB中的 最大绝对值的参数值
 template <typename Dtype>
-Dtype Net<Dtype>::findMax(Blob<Dtype>* blob) {
+Dtype Net<Dtype>::findMax(Blob<Dtype>* blob) 
+{
   const Dtype* data = blob->cpu_data();
-  int cnt = blob->count();
-  Dtype max_val = (Dtype)-10;
-  for (int i = 0; i < cnt; ++i) {
-    max_val = std::max(max_val, (Dtype)fabs(data[i]));
+  int cnt = blob->count();// blob->count() 获取总数量
+  Dtype max_val = (Dtype)-10;//  初始化最大值 -10
+  for (int i = 0; i < cnt; ++i) // 遍历 BOLB中的每一个参数
+  {
+    max_val = std::max(max_val, (Dtype)fabs(data[i]));// 绝对最大值
+   // max_val = std::max(max_val, (Dtype)data[i]);    // 实际最大值
+   // min_val = std::min(min_val, (Dtype)data[i]);    // 实际最小值
   }
   return max_val;
 }
-
+    
+//////////////////////////////////////////////////////////////////////////
+// 遍历每一层 获取每一层 参数/输入/输出 数据中的 最大最小等值
+// 这里还可以记录更复杂的 统计数据======================================
 template <typename Dtype>
-void Net<Dtype>::RangeInLayers(vector<string>* layer_name,
-      vector<Dtype>* max_in, vector<Dtype>* max_out, vector<Dtype>* max_param) {
+void Net<Dtype>::RangeInLayers(
+      vector<string>* layer_name,// 返回包含所有层名字的 数组
+      vector<Dtype>* max_in,     // 返回层输入最大值 数组
+      vector<Dtype>* max_out,    // 返回层输出最大值 数组
+      vector<Dtype>* max_param)  // 返回层权重参数 最大值 数组
+ {
   // Initialize vector elements, if needed.
-  if(layer_name->size()==0) {
-    for (int layer_id = 0; layer_id < layers_.size(); ++layer_id) {
-      if (strcmp(layers_[layer_id]->type(), "Convolution") == 0 ||
-          strcmp(layers_[layer_id]->type(), "InnerProduct") == 0) {
-        layer_name->push_back(this->layer_names()[layer_id]);
-        max_in->push_back(0);
-        max_out->push_back(0);
-        max_param->push_back(0);
+    
+// 初始化 各种函数返回的 数据对象====================================
+  if(layer_name->size() == 0 ) 
+  {
+    for (int layer_id = 0; layer_id < layers_.size(); ++layer_id) // 变量每一层  layer_id < layers_.size()
+    {
+      // 记录所有层类型为 卷积层/全连接层 的 层名字
+      if (strcmp(layers_[layer_id]->type(), "Convolution") == 0 || strcmp(layers_[layer_id]->type(), "InnerProduct") == 0) 
+      {
+        layer_name->push_back(this->layer_names()[layer_id]);// 层名字
+        max_in->push_back(0);   // 初始化输入最大值为0  并创建vector空间 push_back()
+        max_out->push_back(0);  // 初始化输出最大值为0
+        max_param->push_back(0);// 初始化卷积参数最大值为0
       }
+        
     }
   }
+    
+// 找到各层的最大值==================================================
   // Find maximal values.
   int index = 0;
   Dtype max_val;
-  for (int layer_id = 0; layer_id < layers_.size(); ++layer_id) {
-    if (strcmp(layers_[layer_id]->type(), "Convolution") == 0 ||
-          strcmp(layers_[layer_id]->type(), "InnerProduct") == 0) {
-      max_val = findMax(bottom_vecs_[layer_id][0]);
-      max_in->at(index) = std::max(max_in->at(index), max_val);
-      max_val = findMax(top_vecs_[layer_id][0]);
-      max_out->at(index) = std::max(max_out->at(index), max_val);
-      // Consider the weights only, ignore the bias
-      max_val = findMax(&(*layers_[layer_id]->blobs()[0]));
-      max_param->at(index) = std::max(max_param->at(index), max_val);
+  for (int layer_id = 0; layer_id < layers_.size(); ++layer_id) 
+  { 
+    // 统计所有层类型为 卷积层/全连接层 的 层名字
+    if (strcmp(layers_[layer_id]->type(), "Convolution") == 0 || strcmp(layers_[layer_id]->type(), "InnerProduct") == 0) 
+    {
+      max_val = findMax(bottom_vecs_[layer_id][0]);// 输入值  bottom_vecs_   最大绝对值
+      max_in->at(index) = std::max(max_in->at(index), max_val);// max(0,max_) 至少为0
+        
+      max_val = findMax(top_vecs_[layer_id][0]);// 输出值 top_vecs_ 最大绝对值
+      max_out->at(index) = std::max(max_out->at(index), max_val);//  max(0,max_) 至少为0
+        
+      // Consider the weights only, ignore the bias  这里统计权重参数 仅仅考虑了 w 的范围，没有考虑 偏置b的范围
+      max_val = findMax(&(*layers_[layer_id]->blobs()[0]));//   &(*layers_[layer_id]->blobs()[0])
+      max_param->at(index) = std::max(max_param->at(index), max_val);//  max(0,max_) 至少为0
       index++;
     }
   }
