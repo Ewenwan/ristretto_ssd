@@ -837,18 +837,21 @@ void Quantization::EditNetDescriptionIntegerPowerOf2Weights(
   }
 }
 
+//  参数权重 整数位比特数  2^n = max_， n = ceil(log2(max_)+1)
 int Quantization::GetIntegerLengthParams(const string layer_name) {
   int pos = find(layer_names_.begin(), layer_names_.end(), layer_name)
       - layer_names_.begin();
-  return il_params_[pos];
+  return il_params_[pos];// 返回之前记录的  整数位比特数  2^n = max_， n = ceil(log2(max_)+1)
 }
 
+// 激活值输入 整数位比特数量
 int Quantization::GetIntegerLengthIn(const string layer_name) {
   int pos = find(layer_names_.begin(), layer_names_.end(), layer_name)
       - layer_names_.begin();
   return il_in_[pos];
 }
 
+// 激活之输出值 整数位比特数量
 int Quantization::GetIntegerLengthOut(const string layer_name) {
   int pos = find(layer_names_.begin(), layer_names_.end(), layer_name)
       - layer_names_.begin();
