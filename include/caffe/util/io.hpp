@@ -141,12 +141,15 @@ inline bool MapLabelToDisplayName(const LabelMap& map,
   return MapLabelToDisplayName(map, true, label_to_display_name);
 }
 
-
-
 bool DecodeDatumNative(Datum* datum);
 bool DecodeDatum(Datum* datum, bool is_color);
 
 #ifdef USE_OPENCV
+
+cv::Mat ReadImageToCVMat(const string& filename,
+    const int height, const int width, const bool is_color);
+
+	
 cv::Mat ReadImageToCVMat(const string& filename,
     const int height, const int width, const bool is_color);
 
@@ -165,7 +168,53 @@ void EncodeCVMatToDatum(const cv::Mat& cv_img, const string& encoding,
                         Datum* datum);
 
 void CVMatToDatum(const cv::Mat& cv_img, Datum* datum);
+
+///////////////检测数据 需要返回原图像大小//////
+cv::Mat ReadImageToCVMat(
+    const string& filename,// 图片
+    const int height,      // 目标尺寸
+	const int width, 
+	const bool is_color,   // 彩色?
+    int* ori_w,            // 原图像尺寸
+	int* ori_h);
+////////////////////////////////////
+
+//////////////////////add//////
+// 检测数据转换 
+// 图片+ 标注文件  转换成 数据  Datum* datum
+bool ReadBoxDataToDatum(
+	const string& filename, // 图片路径 
+	const string& annoname, // xml标注文件路径
+	const map<string, int>& label_map, // 标注文件 name标签 : class_id
+	const int height,       // 尺寸变形 固定到网络输入大小
+	const int width, 
+	const bool is_color,    // 彩色图像
+	const std::string & encoding, // 编码格式 
+	Datum* datum);
+///////////////////////////////
+
 #endif  // USE_OPENCV
+
+// xml 格式数据转换成 datum  检测数据===========================
+//  这里要区分是 xml/json/txt格式数据==========待修改
+void ParseXmlToDatum(
+const string& annoname, // xml 标注文件 
+const map<string, int>& label_map,// 标注文件 name标签 : class_id
+int ori_w, // 元图片尺寸
+int ori_h, 
+Datum* datum); 
+
+////////////////////////
+// 文件转成 datum  检测数据=========================
+bool ReadFileToDatum(
+const string& filename, // 图片 
+const string& annoname, // xml 标注文件
+const map<string, int>& label_map, // 标注文件 name标签 : class_id
+int ori_w, // 原始图像尺寸
+int ori_h, 
+Datum* datum);
+///////////////////////////////////
+
 
 }  // namespace caffe
 
