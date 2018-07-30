@@ -46,9 +46,11 @@ DEFINE_int32(iterations, 50,
 DEFINE_double(error_margin, 2,
     "Optional: the allowed accuracy drop in %");
 
+
 // ========================== add net type ================
-// 分类网络/检测网络(ssd / yolo /faster_rcnn)
-DEFINE_string(net_type, "", "The net type");
+// 分类网络/检测网络(classification /ssd_detection / yolov2_detection / faster_rcnn_detection)
+DEFINE_string(net_type, "", "The net type: classification /ssd_detection / yolov2_detection");
+/////////////////////////////////////////
 
 
 // A simple registry for caffe commands.
