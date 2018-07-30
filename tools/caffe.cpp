@@ -115,8 +115,8 @@ DEFINE_string(sighup_effect, "snapshot",
              "snapshot, stop or none.");
 
 // ========================== add net type ================
-// 分类网络/检测网络(ssd / yolo /faster_rcnn)
-DEFINE_string(net_type, "", "The net type");
+// 分类网络/检测网络(classification /ssd_detection / yolov2_detection / faster_rcnn_detection)
+DEFINE_string(net_type, "", "The net type: classification /ssd_detection / yolov2_detection");
 /////////////////////////////////////////
 
 
@@ -397,14 +397,15 @@ void TestClassification() {
   }
 }
 
-// 检测网络测试======================================================
+
+// 检测网络测试 SSD ======================================================
 //template <typename Dtype>
-void TestDetection() {
+void TestDetectionSSD() {
   // Instantiate the caffe net.
   //Net<float> caffe_net(FLAGS_model, caffe::TEST);// 模型
   Net<float>* caffe_net = new Net<float>(FLAGS_model, caffe::TEST);// 测试网络模型
   caffe_net->CopyTrainedLayersFrom(FLAGS_weights);// 权重
-  LOG(INFO) << "Test Detection net running for " << FLAGS_iterations << " iterations.";
+  LOG(INFO) << "Test SSD Detection net running for " << FLAGS_iterations << " iterations.";
 
   //SolverParameter param;
   
@@ -512,6 +513,40 @@ void TestDetection() {
               << mAP << "mAP";
   }
 }
+/////////////////////////////////////////////////////
+
+
+// 检测网络测试 YOLOV2 ======================================================
+//template <typename Dtype>
+void TestDetectionYolov2() {
+  // Instantiate the caffe net.
+  Net<float>* caffe_net = new Net<float>(FLAGS_model, caffe::TEST);// 测试网络模型
+  caffe_net->CopyTrainedLayersFrom(FLAGS_weights);// 权重
+  LOG(INFO) << "Test Yolov2 Detection net running for " << FLAGS_iterations << " iterations.";
+
+  float loss = 0;
+  float mAP = 0.;
+  
+  for (int i = 0; i < FLAGS_iterations; ++i) 
+	{
+		float iter_loss;
+		caffe_net->Forward(&iter_loss);
+		const shared_ptr<Blob<float> > result_ptr = caffe_net->blob_by_name("eval_det"); // 检测评估层输出
+		const float* pstart = result_ptr->cpu_data(); // eval_det->cpu_data()返回的是多维数据（数组）
+		////////////////////////
+		LOG(INFO) << "Forward loss iterations  " << i << "  :" << iter_loss;
+		/////////////////////
+		loss += iter_loss;// loss求和
+		mAP += *pstart; // eval_detection_layer 那边已经修改成 获取整个batch 的mAP
+	}
+	loss /= FLAGS_iterations;// loss 均值
+	LOG(INFO) << "Dection test loss: " << loss;
+	// 打印精度
+	mAP /= FLAGS_iterations;// 计算均值 mAP
+	LOG(INFO) << "Test detection net output #" << ": " << mAP << "mAP";
+
+}
+/////////////////////////////////////////////////////
 //////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////
 // 测试一个网络 分类 top5   检测mAP50
