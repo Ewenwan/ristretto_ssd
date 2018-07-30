@@ -107,7 +107,8 @@ class Solver {
   // void Test(const int test_net_id = 0); // to TestClassification() & TestDetection()
   
   void TestClassification(const int test_net_id = 0);
-  void TestDetection(const int test_net_id = 0);
+  void TestDetectionSSD(const int test_net_id) ;
+  void TestDetectionYolov2(const int test_net_id);
 /////////////////////////////////////////////////////////////// 
   
   virtual void SnapshotSolverState(const string& model_filename) = 0;
