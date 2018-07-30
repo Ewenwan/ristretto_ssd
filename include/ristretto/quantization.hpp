@@ -4,6 +4,9 @@
 #include "caffe/caffe.hpp"
 #include <map>
 
+#include <boost/make_shared.hpp>// 使用 shared_ptr
+using boost::shared_ptr;
+
 using caffe::string;
 using caffe::vector;
 using caffe::Net;
@@ -23,8 +26,11 @@ public:
 private:
   void CheckWritePermissions(const string path);
   void SetGpu();
-  // 检测网络评估
-  void EvaluateDetection(const int iterations, Net<float>* caffe_net,
+  // 检测网络评估 SSD
+  void EvaluateDetectionSSD(const int iterations, Net<float>* caffe_net,
+      float* accuracy, const bool do_stats, const int score_number);
+  // 检测网络评估 YOLOV2
+  void EvaluateDetectionYOLOV2(const int iterations, Net<float>* caffe_net,
       float* accuracy, const bool do_stats, const int score_number);
   // 分类网络评估
   void EvaluateClassification(const int iterations, Net<float>* caffe_net, 
