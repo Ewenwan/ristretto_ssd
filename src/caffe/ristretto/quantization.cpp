@@ -1,4 +1,3 @@
-////////  量化类对象 
 #include <cstdio>
 
 #include "boost/algorithm/string.hpp"
@@ -26,9 +25,9 @@ Quantization::Quantization(string model, string weights, string model_quantized,
   this->model_   = model;  // 原模型 prototxt 框架文件
   this->weights_ = weights;// 对应权重
   this->model_quantized_ = model_quantized;// 量化后的  prototxt 框架文件 加入了量化卷积层等
-  this->iterations_ = iterations;          // 量化评估网络的迭代次数
-  this->trimming_mode_ = trimming_mode;    // 量化方法
-  this->error_margin_ = error_margin;      // 误差赋值裕度 %
+  this->iterations_ = iterations;// 量化迭代次数
+  this->trimming_mode_ = trimming_mode;// 量化方法
+  this->error_margin_ = error_margin;// 误差赋值裕度 %
   this->gpus_ = gpus;// 使用的 gpu
   
   /////////////////////////////////
@@ -54,7 +53,7 @@ void Quantization::QuantizeNet() {
   float accuracy;
   // 获取指定网络的前向传播精度  这里需要区分 分了和检测网络 可参考 solver.cpp 中的测试部分
   RunForwardBatches(this->net_type_, this->iterations_, net_val, &accuracy);
-  test_score_baseline_ = accuracy;//  获取全精度网络的基线精度
+  test_score_baseline_ = accuracy;
   delete net_val;// 删除测试网络
   
   
@@ -62,7 +61,7 @@ void Quantization::QuantizeNet() {
   // values. Do statistic for 10 batches.
   Net<float>* net_test = new Net<float>(model_, caffe::TRAIN);// 训练网络
   net_test->CopyTrainedLayersFrom(weights_);//载入原来模型 对应的 模型权重
-  RunForwardBatches(this->net_type_, 10, net_test, &accuracy, true);// 设置true 获得网络的 输入输出参数的 数值范围 绝对最大值
+  RunForwardBatches(this->net_type_, 10, net_test, &accuracy, true);
   delete net_test;// 删除 训练网络
   // Do network quantization and scoring.
   
@@ -136,14 +135,13 @@ void Quantization::RunForwardBatches(const string& net_type, const int iteration
  ////////////////////
 //Test(test_net_id); // 分类网络测试 或者 检测网络测试
     if ( net_type == "classification" ) 
-    {// 分类网络测试评估结果=======================================
+    {// 分类网络测试评估结果
       EvaluateClassification(iterations, caffe_net, accuracy, do_stats, score_number);
     } 
     else if ( net_type == "ssd_detection" ) 
-    {// ssd检测网络测试评估结果====================================
-      EvaluateDetection(iterations, caffe_net, accuracy, do_stats, score_number);
+    {// 检测网络测试评估结果
+      EvaluateDetectionSSD(iterations, caffe_net, accuracy, do_stats, score_number);
     } 
-    // yolov2 的检测评估==========================================
     else 
     {
       LOG(FATAL) << "Unknown evaluation type: " << net_type ;
@@ -158,64 +156,52 @@ void Quantization::EvaluateClassification(const int iterations,
 
   LOG(INFO) << "Running for EvaluateClassification " << iterations << " iterations.";
   
-  vector<Blob<float>* > bottom_vec;// 层输入
-  vector<int> test_score_output_id;// 测试 id
-  vector<float> test_score;// 测试得分
+  vector<Blob<float>* > bottom_vec;
+  vector<int> test_score_output_id;
+  vector<float> test_score;
   float loss = 0;
   for (int i = 0; i < iterations; ++i) {
+    
     float iter_loss;
-    // Do forward propagation. 网络前传 获取 loss 以及网络输出（维度信息看网络最后一层的top输出的维度）=================
+    // Do forward propagation.
     const vector<Blob<float>*>& result =
         caffe_net->Forward(bottom_vec, &iter_loss);
-	  
-    // Find maximal values in network. 
-    //  如果需要 获取 网络 各层参数(层名字， 层输入、输出、权重参数的绝对最大值，用于量化的位宽计算)
-    if(do_stats) { 
-      caffe_net->RangeInLayers(&layer_names_, &max_in_, &max_out_,&max_params_);
-	    //                  层名字         层输入绝对最大值  输出   卷积参数w
+    // Find maximal values in network.
+    if(do_stats) {
+      caffe_net->RangeInLayers(&layer_names_, &max_in_, &max_out_,
+          &max_params_);
     }
+/////////////////////////////
+    LOG(INFO) << "iterations " << i << "  :" << iter_loss;
+/////////////////////////////
     // Keep track of network score over multiple batches.
-	  
-////////////////////////
-    LOG(INFO) << "iterations  " << i << "  :" << iter_loss;
-/////////////////////
-
-	  
-    loss += iter_loss;// loss求和 
+    loss += iter_loss;
     int idx = 0;
-    // 遍历batch内的每一张图像的 分类结果===========================================================
     for (int j = 0; j < result.size(); ++j) {
-	    
       const float* result_vec = result[j]->cpu_data();
-      // 遍历 网络不同 尺度 等级 的预测结果
       for (int k = 0; k < result[j]->count(); ++k, ++idx) {
-        const float score = result_vec[k];// 网络不同 尺度 等级的 预测得分
+        const float score = result_vec[k];
         if (i == 0) {
           test_score.push_back(score);
           test_score_output_id.push_back(j);
         } else {
-          test_score[idx] += score;// 得分累计
+          test_score[idx] += score;
         }
-        const std::string& output_name = caffe_net->blob_names()[caffe_net->output_blob_indices()[j]];
+        const std::string& output_name = caffe_net->blob_names()[
+            caffe_net->output_blob_indices()[j]];
         LOG(INFO) << "Batch " << i << ", " << output_name << " = " << score;
       }
     }
   }
-	
   loss /= iterations;
   LOG(INFO) << "Loss: " << loss;
-	
   for (int i = 0; i < test_score.size(); ++i) {
-    // 网络  不同 尺度 等级 层输出 名字
     const std::string& output_name = caffe_net->blob_names()[
         caffe_net->output_blob_indices()[test_score_output_id[i]]];
-	  
-    // 对应的loss权重
-    const float loss_weight = caffe_net->blob_loss_weights()[caffe_net->output_blob_indices()[test_score_output_id[i]]];
-	  
+    const float loss_weight = caffe_net->blob_loss_weights()[
+        caffe_net->output_blob_indices()[test_score_output_id[i]]];
     std::ostringstream loss_msg_stream;
     const float mean_score = test_score[i] / iterations;
-     // loss 权重加权统计 得分==============================================================  
     if (loss_weight) {
       loss_msg_stream << " (* " << loss_weight
                       << " = " << loss_weight * mean_score << " loss)";
@@ -226,89 +212,69 @@ void Quantization::EvaluateClassification(const int iterations,
 
   }
 
-// 检测网络评估==========================================
+// 检测网络评估 SSD ==========================================
 // 参考 ssd/solver.cpp 中的TestDetection()
-void Quantization::EvaluateDetection(const int iterations, 
+void Quantization::EvaluateDetectionSSD(const int iterations, 
     Net<float>* caffe_net, float* accuracy, const bool do_stats,
     const int score_number) {
   
-  LOG(INFO) << "Running for EvaluateDetection " << iterations << " iterations.";
+  LOG(INFO) << "Running for EvaluateDetectionSSD " << iterations << " iterations.";
   
   //CHECK(Caffe::root_solver());
   //LOG(INFO) << "Iteration " << iter_
   //          << ", Testing net (#" << test_net_id << ")";
   //CHECK_NOTNULL(test_nets_[test_net_id].get())->
       //ShareTrainedLayersWith(net_.get());
-	
-  map<int, map<int, vector<pair<float, int> > > > all_true_pos; // 图片id  +  类别id + 得分score + tp(0/1)
-  map<int, map<int, vector<pair<float, int> > > > all_false_pos;// 图片id  +  类别id + 得分score + fp(1/0)
-  map<int, map<int, int> > all_num_pos;// 记录图片每一类的预测总数量 图片id  +  类别id + 预测数量
-	
-  Net<float>*  test_net = caffe_net;// 测试网络
-	
+  map<int, map<int, vector<pair<float, int> > > > all_true_pos;
+  map<int, map<int, vector<pair<float, int> > > > all_false_pos;
+  map<int, map<int, int> > all_num_pos;
+  Net<float>*  test_net = caffe_net;
   float loss = 0;
-  //  每一次迭代==========================================
   for (int i = 0; i < iterations; ++i) {
     float iter_loss;
-	  
-    //  如果需要 获取 网络 各层参数(层名字， 层输入、输出、权重参数的绝对最大值，用于量化的位宽计算)=====================
     if(do_stats) {
       caffe_net->RangeInLayers(&layer_names_, &max_in_, &max_out_,
           &max_params_);
     }
-    // 网络前传 获取 loss 以及网络输出（维度信息看网络最后一层的top输出的维度）========================================
     const vector<Blob<float>*>& result = test_net->Forward(&iter_loss);
-   
+
+
 ////////////////////////
     LOG(INFO) << "iterations  " << i << "  :" << iter_loss;
 /////////////////////
- 
+
+
     loss += iter_loss;
     if (!do_stats) {
-	    
- // 遍历batch内的每一张图像的 检测结果===========================================================	    
     for (int j = 0; j < result.size(); ++j) {
       // 目标检测结果维度
-      CHECK_EQ(result[j]->width(), 5);// id  + label + score + tp  + fp
+      CHECK_EQ(result[j]->width(), 5);//
       const float* result_vec = result[j]->cpu_data();
-	    
       // 总的检测结果数量
       int num_det = result[j]->height();
-	    
       // 遍历每一个检测结果
       for (int k = 0; k < num_det; ++k) {
         int item_id = static_cast<int>(result_vec[k * 5]);// id    
         int label = static_cast<int>(result_vec[k * 5 + 1]);// 标签 label
-        if (item_id == -1) // 特别的一行  ======================================
-	{
+        if (item_id == -1) {
           // Special row of storing number of positives for a label.
-           if (all_num_pos[j].find(label) == all_num_pos[j].end()) // 记录图片每一类的预测总数量
-	    {
+          if (all_num_pos[j].find(label) == all_num_pos[j].end()) {
             all_num_pos[j][label] = static_cast<int>(result_vec[k * 5 + 2]);// 
-            } 
-	   else 
-	    {
+          } else {
             all_num_pos[j][label] += static_cast<int>(result_vec[k * 5 + 2]);
-            }
-        }
-	      
-	else // 常规的行 存储 检测状态===========================================
-	{
+          }
+        } else {
           // Normal row storing detection status.
           float score = result_vec[k * 5 + 2];// 得分
-          int tp = static_cast<int>(result_vec[k * 5 + 3]);// tp  正确的预测为正确的
-          int fp = static_cast<int>(result_vec[k * 5 + 4]);// fp  错误的预测为正确的
-          if (tp == 0 && fp == 0)// 未预测到物体
-	  {
+          int tp = static_cast<int>(result_vec[k * 5 + 3]);//正确的位置预测 id
+          int fp = static_cast<int>(result_vec[k * 5 + 4]);//错误的预测id
+          if (tp == 0 && fp == 0) {
             // Ignore such case. It happens when a detection bbox is matched to
             // a difficult gt bbox and we don't evaluate on difficult gt bbox.
             continue;
           }
-		
-          all_true_pos[j][label].push_back(std::make_pair(score, tp));// 正确预测
-		
-          all_false_pos[j][label].push_back(std::make_pair(score, fp));// 错误预测
-		
+          all_true_pos[j][label].push_back(std::make_pair(score, tp));
+          all_false_pos[j][label].push_back(std::make_pair(score, fp));
         }
       }
     }
@@ -320,62 +286,46 @@ void Quantization::EvaluateDetection(const int iterations,
 
   float mAP = 0.;
   if (!do_stats) {
-	  
-// 预测正确的 ==================================================================
-  for (int i = 0; i < all_true_pos.size(); ++i) 
-  {
-	  
+  for (int i = 0; i < all_true_pos.size(); ++i) {
     if (all_true_pos.find(i) == all_true_pos.end()) {
       LOG(FATAL) << "Missing output_blob true_pos: " << i;
     }
-	  
-    const map<int, vector<pair<float, int> > >& true_pos = all_true_pos.find(i)->second;
+    const map<int, vector<pair<float, int> > >& true_pos =
+        all_true_pos.find(i)->second;
     if (all_false_pos.find(i) == all_false_pos.end()) {
       LOG(FATAL) << "Missing output_blob false_pos: " << i;
     }
-	  
-    const map<int, vector<pair<float, int> > >& false_pos = all_false_pos.find(i)->second;
+    const map<int, vector<pair<float, int> > >& false_pos =
+        all_false_pos.find(i)->second;
     if (all_num_pos.find(i) == all_num_pos.end()) {
       LOG(FATAL) << "Missing output_blob num_pos: " << i;
     }
-	  
-    const map<int, int>& num_pos = all_num_pos.find(i)->second; // 类别id + 预测数量
-	  
-    map<int, float> APs;// 每张图片的 每一类的 平均准确度 tp / (tp+fp)
+    const map<int, int>& num_pos = all_num_pos.find(i)->second;
+    map<int, float> APs;
     
     // Sort true_pos and false_pos with descend scores.
-    // 遍历不同类别 的预测结果 计算 AP =====================================================
-    for (map<int, int>::const_iterator it = num_pos.begin(); it != num_pos.end(); ++it) 
-     {
-      int label = it->first;// 类别id 
-      int label_num_pos = it->second;// 预测数量
-	    
-      if (true_pos.find(label) == true_pos.end()) 
-      {// 丢失 tp 记录
+    for (map<int, int>::const_iterator it = num_pos.begin();
+         it != num_pos.end(); ++it) {
+      int label = it->first;
+      int label_num_pos = it->second;
+      if (true_pos.find(label) == true_pos.end()) {
         LOG(WARNING) << "Missing true_pos for label: " << label;
         continue;
       }
-      
-      // 得分score + tp(0/1)
-      const vector<pair<float, int> >& label_true_pos = true_pos.find(label)->second;
-	    
+      const vector<pair<float, int> >& label_true_pos =
+          true_pos.find(label)->second;
       if (false_pos.find(label) == false_pos.end()) {
-      // 丢失 fp记录
         LOG(WARNING) << "Missing false_pos for label: " << label;
         continue;
       }
-	    
-      // 得分score + fp(1/0)  
-      const vector<pair<float, int> >& label_false_pos = false_pos.find(label)->second;
-	    
+      const vector<pair<float, int> >& label_false_pos =
+          false_pos.find(label)->second;
       vector<float> prec, rec;
-      // 计算一张图片 的 某一类别 的平均准确度
-      //                   tp             总预测数量        fp
-      caffe::ComputeAP(label_true_pos, label_num_pos, label_false_pos, "11point", &prec, &rec, &(APs[label]));
-	    
-      mAP += APs[label];// 这一类
+      caffe::ComputeAP(label_true_pos, label_num_pos, label_false_pos,
+                "11point", &prec, &rec, &(APs[label]));
+      mAP += APs[label];
     }
-    mAP /= num_pos.size();// 平均AP
+    mAP /= num_pos.size();
  //   const int output_blob_index = test_net->output_blob_indices()[i];
  //   const string& output_name = test_net->blob_names()[output_blob_index];
  //   LOG(INFO) << "    Test net output #" << i << ": " << output_name << " = "
@@ -386,220 +336,275 @@ void Quantization::EvaluateDetection(const int iterations,
   *accuracy = mAP;
 }
 
-/////////////////////// 动态固定点==================================================================================
+///////////////////////////////////////////////////////////////////////
+// 检测网络评估 YOLOV2 ==========================================
+// 参考 ssd/solver.cpp 中的TestDetection()
+void Quantization::EvaluateDetectionYOLOV2(const int iterations, 
+    Net<float>* caffe_net, float* accuracy, const bool do_stats,
+    const int score_number) {
+  
+  LOG(INFO) << "Running for EvaluateDetectionYOLOV2 " << iterations << " iterations.";
+  
+
+  
+  Net<float>*  test_net = caffe_net;
+  
+  float loss = 0;
+  float mAP = 0.;
+  for (int i = 0; i < iterations; ++i) {
+	  
+    float iter_loss;
+	
+	///   获取网络各层参数范围
+    if(do_stats) 
+	{
+      caffe_net->RangeInLayers(&layer_names_, &max_in_, &max_out_,
+          &max_params_);
+    }
+	
+    test_net->Forward(&iter_loss);
+	const shared_ptr<Blob<float> > result_ptr = test_net->blob_by_name("eval_det"); // 检测评估层输出
+	const float* pstart = result_ptr->cpu_data();
+
+///
+    LOG(INFO) << "iterations  " << i << "  :" << iter_loss;
+///
+	loss += iter_loss;// loss 之和
+	mAP += *pstart; // eval_detection_layer 那边已经修改成 获取整个batch 的mAP
+    }
+	if(iterations) loss /= iterations;
+	if(iterations) mAP /= iterations;
+	LOG(INFO) << "Dection test loss: " << loss;
+	LOG(INFO) << "accuracy : " << mAP << "mAP";
+	*accuracy = mAP;
+
+}
+////////////////////////////////////////////////////
+
+
+/*
+void Quantization::RunForwardBatches(const int iterations,
+      Net<float>* caffe_net, float* accuracy, const bool do_stats,
+      const int score_number) {
+  LOG(INFO) << "Running for " << iterations << " iterations.";
+  vector<Blob<float>* > bottom_vec;
+  vector<int> test_score_output_id;
+  vector<float> test_score;
+  
+  float loss = 0;
+  for (int i = 0; i < iterations; ++i) {
+    float iter_loss;
+    vector<Blob<float>*> result;
+    // Do forward propagation.
+    if (!do_stats) {
+      //const vector<Blob<float>*>& result1 =
+          //caffe_net->Forward(bottom_vec, &iter_loss);
+
+      float mAP;
+      //const vector<Blob<float>*> result;
+      Blob<float>* blob_input_(new Blob<float>());
+      result.push_back(blob_input_);
+      vector<int> top_shape(0);
+      result[0]->Reshape(top_shape);
+      //mAP =  EvaluateDetection(result1);
+	mAP =  EvaluateDetection(caffe_net, );
+      result[0]->mutable_cpu_data()[0] = mAP;
+    }
+    else {
+      //const vector<Blob<float>*>& result = caffe_net->Forward(bottom_vec, &iter_loss);
+      result = caffe_net->Forward(bottom_vec, &iter_loss);
+    }
+
+    // Find maximal values in network.
+    if(do_stats) {
+      caffe_net->RangeInLayers(&layer_names_, &max_in_, &max_out_,
+          &max_params_);
+    }
+    // Keep track of network score over multiple batches.
+    loss += iter_loss;
+    int idx = 0;
+    for (int j = 0; j < result.size(); ++j) {
+      const float* result_vec = result[j]->cpu_data();
+      for (int k = 0; k < result[j]->count(); ++k, ++idx) {
+        const float score = result_vec[k];
+        if (i == 0) {
+          test_score.push_back(score);
+          test_score_output_id.push_back(j);
+        } else {
+          test_score[idx] += score;
+        }
+        const std::string& output_name = caffe_net->blob_names()[
+            caffe_net->output_blob_indices()[j]];
+        LOG(INFO) << "Batch " << i << ", " << output_name << " = " << score;
+      }
+    }
+  }
+  loss /= iterations;
+  LOG(INFO) << "Loss: " << loss;
+  for (int i = 0; i < test_score.size(); ++i) {
+    const std::string& output_name = caffe_net->blob_names()[
+        caffe_net->output_blob_indices()[test_score_output_id[i]]];
+    const float loss_weight = caffe_net->blob_loss_weights()[
+        caffe_net->output_blob_indices()[test_score_output_id[i]]];
+    std::ostringstream loss_msg_stream;
+    const float mean_score = test_score[i] / iterations;
+    if (loss_weight) {
+      loss_msg_stream << " (* " << loss_weight
+                      << " = " << loss_weight * mean_score << " loss)";
+    }
+    LOG(INFO) << output_name << " = " << mean_score << loss_msg_stream.str();
+  }
+  *accuracy = test_score[score_number] / iterations;
+}
+*/
+
+
+/////////////////////// 动态固定点=======================================
 void Quantization::Quantize2DynamicFixedPoint() {
   // Find the integer length for dynamic fixed point numbers.
   // The integer length is chosen such that no saturation occurs.
   // This approximation assumes an infinitely long factional part.
   // For layer activations, we reduce the integer length by one bit.
-	
-// 遍历每一层，根据每一层的参数的 绝对最大值 计算量化 的 整数位 位宽===============
   for (int i = 0; i < layer_names_.size(); ++i) {
-    il_in_.push_back((int)ceil(log2(max_in_[i])));          // 激活   输入 整数位宽
-    il_out_.push_back((int)ceil(log2(max_out_[i])));        // 激活   输出 整数位宽
-    il_params_.push_back((int)ceil(log2(max_params_[i])+1));// 权重参数w + b 的 整数位宽
+    il_in_.push_back((int)ceil(log2(max_in_[i])));
+    il_out_.push_back((int)ceil(log2(max_out_[i])));
+    il_params_.push_back((int)ceil(log2(max_params_[i])+1));
   }
-	
-  // 打印调试信息============================================
+  // Debug
   for (int k = 0; k < layer_names_.size(); ++k) {
     LOG(INFO) << "Layer " << layer_names_[k] <<
         ", integer length input=" << il_in_[k] <<
         ", integer length output=" << il_out_[k] <<
         ", integer length parameters=" << il_params_[k];
   }
-	
-////////////////////////////////////////////////////////////////////////////////////////////////
-// 卷积层 权重参数w + b 不同比特位量化 并统计对应的网络测试精度=====================================
-///////////////////////////////////////////////////////////////////////////////////////////////
-	
+
   // Score net with dynamic fixed point convolution parameters.
   // The rest of the net remains in high precision format.
   NetParameter param;
-  caffe::ReadNetParamsFromTextFileOrDie(model_, &param);// 载入原网络参数
-  param.mutable_state()->set_phase(caffe::TEST);        // 测试模式
-  vector<int> test_bw_conv_params;                      // 卷积层 量化位宽记录
-  vector<float> test_scores_conv_params;                // 对应网络的测试得分
-	
+  caffe::ReadNetParamsFromTextFileOrDie(model_, &param);
+  param.mutable_state()->set_phase(caffe::TEST);
+  vector<int> test_bw_conv_params;
+  vector<float> test_scores_conv_params;
   float accuracy;
   Net<float>* net_test;
-  for (int bitwidth = 16; bitwidth > 2; bitwidth /= 2) {// 16 8 4  比特量化
-    // 根据量化比特数 修改 原网络  只要是 层类型修改和添加层量化参数====================
-    EditNetDescriptionDynamicFixedPoint(&param, "Convolution", "Parameters", bitwidth, -1, -1, -1);
-    // 生成对应量化的测试网络============
+  for (int bitwidth = 16; bitwidth > 4; bitwidth /= 2) {
+    EditNetDescriptionDynamicFixedPoint(&param, "Convolution", "Parameters",
+        bitwidth, -1, -1, -1);
     net_test = new Net<float>(param, NULL);
-    net_test->CopyTrainedLayersFrom(weights_);// 载入原始精度 权重参数
-    // 量化网络 前传 获取测试精度============
+    net_test->CopyTrainedLayersFrom(weights_);
     RunForwardBatches(this->net_type_, iterations_, net_test, &accuracy);
-    test_bw_conv_params.push_back(bitwidth);    // 记录精度
-    test_scores_conv_params.push_back(accuracy);// 记录得分
-    delete net_test;// 释放空间
-    // 如果测试精度 以及小于阈值了，提前结束，更少的量化位数，精度肯定更低===============
-    if ( accuracy + error_margin_ / 100 < test_score_baseline_ ) break;
+    test_bw_conv_params.push_back(bitwidth);
+    test_scores_conv_params.push_back(accuracy);
+    delete net_test;
+    //if ( accuracy + error_margin_ / 100 < test_score_baseline_ ) break;
   }
-	
-	
-//////////////////////////////////////////////////////////////////////////////////////////////////	
-// 全连接层 权重参数w + b 不同比特位量化 并统计对应的网络测试精度=====================================
-//////////////////////////////////////////////////////////////////////////////////////////////////
 
   // Score net with dynamic fixed point inner product parameters.
   // The rest of the net remains in high precision format.
-  caffe::ReadNetParamsFromTextFileOrDie(model_, &param);// 载入原网络参数
-  param.mutable_state()->set_phase(caffe::TEST);        // 测试模式
-  vector<int> test_bw_fc_params;                        // 卷积层 量化位宽记录
-  vector<float> test_scores_fc_params;                   // 对应网络的测试得分
-  for (int bitwidth = 8; bitwidth > 2; bitwidth /= 2) {//  8 4 位量化精度
-	  
-    // 根据量化比特数 修改 原网络  只要是 层类型修改和添加层量化参数====================  
-    EditNetDescriptionDynamicFixedPoint(&param, "InnerProduct", "Parameters",-1, bitwidth, -1, -1);
-    // 生成对应量化的测试网络============  
+  caffe::ReadNetParamsFromTextFileOrDie(model_, &param);
+  param.mutable_state()->set_phase(caffe::TEST);
+  vector<int> test_bw_fc_params;
+  vector<float> test_scores_fc_params;
+  for (int bitwidth = 8; bitwidth > 4; bitwidth /= 2) {
+    EditNetDescriptionDynamicFixedPoint(&param, "InnerProduct", "Parameters",
+        -1, bitwidth, -1, -1);
     net_test = new Net<float>(param, NULL);
-    net_test->CopyTrainedLayersFrom(weights_);// 载入原始精度 权重参数
-    // 量化网络 前传 获取测试精度============
+    net_test->CopyTrainedLayersFrom(weights_);
     RunForwardBatches(this->net_type_, iterations_, net_test, &accuracy);
-    test_bw_fc_params.push_back(bitwidth);     // 记录精度
-    test_scores_fc_params.push_back(accuracy); // 记录得分
-    delete net_test;// 释放空间
-    // 如果测试精度 以及小于阈值了，提前结束，更少的量化位数，精度肯定更低===============
-    if ( accuracy + error_margin_ / 100 < test_score_baseline_ ) break;
+    test_bw_fc_params.push_back(bitwidth);
+    test_scores_fc_params.push_back(accuracy);
+    delete net_test;
+    //if ( accuracy + error_margin_ / 100 < test_score_baseline_ ) break;
   }
-	
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// 卷积层+全连接层 的输入输出激活部分 不同比特位量化 并统计对应的网络测试精度=================================
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	
+
   // Score net with dynamic fixed point layer activations.
   // The rest of the net remains in high precision format.
-  caffe::ReadNetParamsFromTextFileOrDie(model_, &param);        // 载入原网络参数
-  param.mutable_state()->set_phase(caffe::TEST);                // 测试模式 
-  vector<int> test_bw_layer_activations;                        // 卷积层 量化位宽记录
-  vector<float> test_scores_layer_activations;                  // 对应网络的测试得分
-  for (int bitwidth = 16; bitwidth > 2; bitwidth /= 2) {// 16 8 4 
-    // 根据量化比特数 修改 原网络  只要是 层类型修改和添加层量化参数
-    EditNetDescriptionDynamicFixedPoint(&param, "Convolution_and_InnerProduct", "Activations", -1, -1, bitwidth, bitwidth);
-    // 生成对应量化的测试网络============    
+  caffe::ReadNetParamsFromTextFileOrDie(model_, &param);
+  param.mutable_state()->set_phase(caffe::TEST);
+  vector<int> test_bw_layer_activations;
+  vector<float> test_scores_layer_activations;
+  for (int bitwidth = 16; bitwidth > 4; bitwidth /= 2) {
+    EditNetDescriptionDynamicFixedPoint(&param, "Convolution_and_InnerProduct",
+        "Activations", -1, -1, bitwidth, bitwidth);
     net_test = new Net<float>(param, NULL);
-    net_test->CopyTrainedLayersFrom(weights_);// 载入原始精度 权重参数
-    // 量化网络 前传 获取测试精度============
+    net_test->CopyTrainedLayersFrom(weights_);
     RunForwardBatches(this->net_type_, iterations_, net_test, &accuracy);
-    test_bw_layer_activations.push_back(bitwidth);     // 记录精度
-    test_scores_layer_activations.push_back(accuracy); // 记录得分
-    delete net_test;// 释放空间
-	  
-    // 如果测试精度 以及小于阈值了，提前结束，更少的量化位数，精度肯定更低===============
+    test_bw_layer_activations.push_back(bitwidth);
+    test_scores_layer_activations.push_back(accuracy);
+    delete net_test;
     if ( accuracy + error_margin_ / 100 < test_score_baseline_ ) break;
   }
-	
-////////////////////////////////////////////////////////////////////////////////////////////////////////////	
-// 根据以上记录确定最终的量化比特策略 =====================================================================
-////////////////////////////////////////////////////////////////////////////////////////////////////////
-	
+
   // Choose bit-width for different network parts
-  bw_conv_params_ = 32; // 初始化为最大值
+  bw_conv_params_ = 32;
   bw_fc_params_ = 32;
   bw_out_ = 32;
-	
-// 选取卷积层量化 比特数===================
   for (int i = 0; i < test_scores_conv_params.size(); ++i) {
     if (test_scores_conv_params[i] + error_margin_ / 100 >=
           test_score_baseline_)
-      bw_conv_params_ = test_bw_conv_params[i];// 在量化精度误差限度内，选择能够量化的最低 位宽
+      bw_conv_params_ = test_bw_conv_params[i];
     else
       break;
   }
-// 选取 全连接层量化 比特数=============================
   for (int i = 0; i < test_scores_fc_params.size(); ++i) {
     if (test_scores_fc_params[i] + error_margin_ / 100 >=
           test_score_baseline_)
-      bw_fc_params_ = test_bw_fc_params[i];// 在量化精度误差限度内，选择能够量化的最低 位宽
+      bw_fc_params_ = test_bw_fc_params[i];
     else
       break;
   }
-// 选取 输如输出激活层量化  比特数=============================
   for (int i = 0; i < test_scores_layer_activations.size(); ++i) {
     if (test_scores_layer_activations[i] + error_margin_ / 100 >=
           test_score_baseline_)
-      bw_out_ = test_bw_layer_activations[i];// 在量化精度误差限度内，选择能够量化的最低 位宽
+      bw_out_ = test_bw_layer_activations[i];
     else
       break;
   }
-  bw_in_ = bw_out_;// 输如输出激活层量化  比特数一致
-	
-////////////////////////////////////////////////////////////////////////////
-// 按照最终确定的量化比特方案 再次进行测试，记录测试精度=========================
-///////////////////////////////////////////////////////////////////////////
-	
+  bw_in_ = bw_out_;
+
   // Score dynamic fixed point network.
   // This network combines dynamic fixed point parameters in convolutional and
   // inner product layers, as well as dynamic fixed point activations.
-  caffe::ReadNetParamsFromTextFileOrDie(model_, &param);  // 载入原网络参数
-  param.mutable_state()->set_phase(caffe::TEST);          // 测试模式 
-	
-  // 根据量化比特数 修改 原网络  只要是 层类型修改和添加层量化参数=================
-  EditNetDescriptionDynamicFixedPoint(&param,                         // 原网络参数
-				      "Convolution_and_InnerProduct", // 层选项 Convolution/InnerProduct/Convolution_and_InnerProduct
-				      "Parameters_and_Activations",   // 量化范围 权重参数/激活/权重参数+激活
-				      bw_conv_params_,                // 卷积层参数    w+b 的 量化位宽
-				      bw_fc_params_,                  // 全连接层参数  w+b 的 量化位宽     
-				      bw_in_,                         // 层输入 激活值 的 量化位宽
-                                      bw_out_);                       // 层输出 激活值 的 量化位宽
-  // 生成对应量化的测试网络============    
+  caffe::ReadNetParamsFromTextFileOrDie(model_, &param);
+  param.mutable_state()->set_phase(caffe::TEST);
+  EditNetDescriptionDynamicFixedPoint(&param, "Convolution_and_InnerProduct",
+      "Parameters_and_Activations", bw_conv_params_, bw_fc_params_, bw_in_,
+      bw_out_);
   net_test = new Net<float>(param, NULL);
-  net_test->CopyTrainedLayersFrom(weights_);// 载入原始精度 权重参数
-	
-  // 量化网络 前传 获取测试精度============
+  net_test->CopyTrainedLayersFrom(weights_);
   RunForwardBatches(this->net_type_, iterations_, net_test, &accuracy);
-   
-  // 内存清理============================ 
-  delete net_test;// 释放网络空间
-  param.release_state();// 释放参数空间
-	
-  // 保存最终确定的量化网络模型===========
+  delete net_test;
+  param.release_state();
   WriteProtoToTextFile(param, model_quantized_);
 
-  // 打印 量化分析信息===================
+  // Write summary of dynamic fixed point analysis to log
   LOG(INFO) << "------------------------------";
   LOG(INFO) << "Network accuracy analysis for";
   LOG(INFO) << "Convolutional (CONV) and fully";
   LOG(INFO) << "connected (FC) layers.";
-  LOG(INFO) << "Baseline 32bit float NET SCORE: " << test_score_baseline_;
-  LOG(INFO) << "===================================";	
-	
-// 卷积层 参数量化==================
+  LOG(INFO) << "Baseline 32bit float: " << test_score_baseline_;
   LOG(INFO) << "Dynamic fixed point CONV";
   LOG(INFO)  << "weights: ";
   for (int j = 0; j < test_scores_conv_params.size(); ++j) {
-    // 打印量化位数 和得分 
     LOG(INFO) << test_bw_conv_params[j] << "bit: \t" <<
         test_scores_conv_params[j];
   }
-  LOG(INFO) << "===================================";	
-	
-// 全连接层 参数量化========================
   LOG(INFO) << "Dynamic fixed point FC";
   LOG(INFO) << "weights: ";
-  // 打印量化位数 和得分 
   for (int j = 0; j < test_scores_fc_params.size(); ++j) {
     LOG(INFO) << test_bw_fc_params[j] << "bit: \t" << test_scores_fc_params[j];
   }
-  LOG(INFO) << "===================================";	
-	
-// 卷积+全连接层 的输入输出激活部分量化=================
   LOG(INFO) << "Dynamic fixed point layer";
   LOG(INFO) << "activations:";
-  // 打印量化位数 和得分 
   for (int j = 0; j < test_scores_layer_activations.size(); ++j) {
     LOG(INFO) << test_bw_layer_activations[j] << "bit: \t" <<
         test_scores_layer_activations[j];
   }
- LOG(INFO) << "===================================";	
-	
-// 最终确定的量化网络===================================
   LOG(INFO) << "Dynamic fixed point net:";
   LOG(INFO) << bw_conv_params_ << "bit CONV weights,";
   LOG(INFO) << bw_fc_params_ << "bit FC weights,";
   LOG(INFO) << bw_out_ << "bit layer activations:";
-  LOG(INFO) << "Accuracy: " << accuracy;// 得分 
+  LOG(INFO) << "Accuracy: " << accuracy;
   LOG(INFO) << "Please fine-tune.";
 }
 
@@ -707,79 +712,55 @@ void Quantization::Quantize2IntegerPowerOf2Weights() {
 }
 
 ///////////////////////////////////// 
-void Quantization::EditNetDescriptionDynamicFixedPoint(
-	NetParameter* param,             // 原网络参数
-        const string layers_2_quantize,  // 层选项 Convolution/InnerProduct/Convolution_and_InnerProduct
-	const string net_part,           // 量化范围 权重参数/激活/权重参数+激活
-	const int bw_conv,               // 卷积层参数    w+b 的 量化位宽
-        const int bw_fc,                 // 全连接层参数  w+b 的 量化位宽
-	const int bw_in,                 // 层输入 激活值 的 量化位宽
-	const int bw_out)                // 层输出 激活值 的 量化位宽
-{
-// 遍历原网络的每一层==========================================================
-  for (int i = 0; i < param->layer_size(); ++i)
-  {
-	  
-///// 量化 卷积层(参数w+b  和 输入输出激活部分)======================================
+void Quantization::EditNetDescriptionDynamicFixedPoint(NetParameter* param,
+      const string layers_2_quantize, const string net_part, const int bw_conv,
+      const int bw_fc, const int bw_in, const int bw_out) {
+  for (int i = 0; i < param->layer_size(); ++i) {
     // if this is a convolutional layer which should be quantized ...
     if (layers_2_quantize.find("Convolution") != string::npos &&
-        param->layer(i).type().find("Convolution") != string::npos) 
-    {
-      // quantize parameters  量化卷积参数 w+b
-      if (net_part.find("Parameters") != string::npos) 
-      {
-        LayerParameter* param_layer = param->mutable_layer(i);// 层类型 Convolution
-        param_layer->set_type("ConvolutionRistretto");        // 改名为 ConvolutionRistretto
-	
-	// 向 ConvolutionRistretto 添加 卷积层 参数w+b 的量化参数 ======================
-        param_layer->mutable_quantization_param()->set_fl_params(bw_conv -GetIntegerLengthParams(param->layer(i).name()));// 小数位比特位 位宽 
-	// 整数的 比特位数  = ceil(log2(max(abs(x))) + 1),  2^n = max(abs(x), n = ceil(log2(max(abs(x))) 向下取整
-	// +1 为了弥补 向下取整 丢失
-        param_layer->mutable_quantization_param()->set_bw_params(bw_conv);// 总量化 位宽
+        param->layer(i).type().find("Convolution") != string::npos) {
+      // quantize parameters  量化卷积参数
+      if (net_part.find("Parameters") != string::npos) {
+        LayerParameter* param_layer = param->mutable_layer(i);
+        param_layer->set_type("ConvolutionRistretto");
+        param_layer->mutable_quantization_param()->set_fl_params(bw_conv -
+            GetIntegerLengthParams(param->layer(i).name()));
+        param_layer->mutable_quantization_param()->set_bw_params(bw_conv);
       }
-	    
       // quantize activations 量化激活层
-      if (net_part.find("Activations") != string::npos) 
-      {
-        LayerParameter* param_layer = param->mutable_layer(i);// 层类型 Convolution
-        param_layer->set_type("ConvolutionRistretto");        // 改名为 ConvolutionRistretto
-	      
-        // 向 ConvolutionRistretto 添加 层输入激活部分  的量化参数 ======================
-        param_layer->mutable_quantization_param()->set_fl_layer_in(bw_in -GetIntegerLengthIn(param->layer(i).name()));// 小数位比特位 位宽 
-        param_layer->mutable_quantization_param()->set_bw_layer_in(bw_in);// 总量化 位宽
-	      
-	// 向 ConvolutionRistretto 添加 层输出激活部分  的量化参数 ======================      
+      if (net_part.find("Activations") != string::npos) {
+        LayerParameter* param_layer = param->mutable_layer(i);
+        param_layer->set_type("ConvolutionRistretto");
+        param_layer->mutable_quantization_param()->set_fl_layer_in(bw_in -
+            GetIntegerLengthIn(param->layer(i).name()));
+        param_layer->mutable_quantization_param()->set_bw_layer_in(bw_in);
         param_layer->mutable_quantization_param()->set_fl_layer_out(bw_out -
-            GetIntegerLengthOut(param->layer(i).name()));// 小数位比特位 位宽 
-        param_layer->mutable_quantization_param()->set_bw_layer_out(bw_out);// 总量化 位宽
+            GetIntegerLengthOut(param->layer(i).name()));
+        param_layer->mutable_quantization_param()->set_bw_layer_out(bw_out);
       }
     }
-    
-////// 量化 全连接层（参数w+b  和 输入输出激活部分）======================================== 
     // if this is an inner product layer which should be quantized ...
     if (layers_2_quantize.find("InnerProduct") != string::npos &&
         (param->layer(i).type().find("InnerProduct") != string::npos ||
-        param->layer(i).type().find("FcRistretto") != string::npos)) 
-    {
-      // quantize parameters 量化权重参数w+b=========================
-      if (net_part.find("Parameters") != string::npos)
-      {
-        LayerParameter* param_layer = param->mutable_layer(i); // 层类型 InnerProduct/FcRistretto
-        param_layer->set_type("FcRistretto");                  // 改名为 FcRistretto
-        param_layer->mutable_quantization_param()->set_fl_params(bw_fc - GetIntegerLengthParams(param->layer(i).name()));// 小数位比特位 位宽 
-        param_layer->mutable_quantization_param()->set_bw_params(bw_fc);// 总量化 位宽
+        param->layer(i).type().find("FcRistretto") != string::npos)) {
+      // quantize parameters 量化全链接参数
+      if (net_part.find("Parameters") != string::npos) {
+        LayerParameter* param_layer = param->mutable_layer(i);
+        param_layer->set_type("FcRistretto");
+        param_layer->mutable_quantization_param()->set_fl_params(bw_fc -
+            GetIntegerLengthParams(param->layer(i).name()));
+        param_layer->mutable_quantization_param()->set_bw_params(bw_fc);
       }
-      // quantize activations  量化输入输出激活部分===================
-      if (net_part.find("Activations") != string::npos) 
-      {
-        LayerParameter* param_layer = param->mutable_layer(i);// 层类型 InnerProduct/FcRistretto
-        param_layer->set_type("FcRistretto");                 // 改名为 FcRistretto
-	      
-        param_layer->mutable_quantization_param()->set_fl_layer_in(bw_in - GetIntegerLengthIn(param->layer(i).name()) );// 小数位比特位 位宽 
-        param_layer->mutable_quantization_param()->set_bw_layer_in(bw_in);// 总量化 位宽
-	      
-        param_layer->mutable_quantization_param()->set_fl_layer_out(bw_out - GetIntegerLengthOut(param->layer(i).name()) );// 小数位比特位 位宽 
-        param_layer->mutable_quantization_param()->set_bw_layer_out(bw_out);// 总量化 位宽
+      // quantize activations  量化激活层
+      if (net_part.find("Activations") != string::npos) {
+        LayerParameter* param_layer = param->mutable_layer(i);
+        param_layer->set_type("FcRistretto");
+        param_layer->mutable_quantization_param()->set_fl_layer_in(bw_in -
+            GetIntegerLengthIn(param->layer(i).name()) );
+        param_layer->mutable_quantization_param()->set_bw_layer_in(bw_in);
+        param_layer->mutable_quantization_param()->set_fl_layer_out(bw_out -
+            GetIntegerLengthOut(param->layer(i).name()) );
+        param_layer->mutable_quantization_param()->set_bw_layer_out(bw_out);
       }
     }
   }
@@ -837,21 +818,18 @@ void Quantization::EditNetDescriptionIntegerPowerOf2Weights(
   }
 }
 
-//  参数权重 整数位比特数  2^n = max_， n = ceil(log2(max_)+1)
 int Quantization::GetIntegerLengthParams(const string layer_name) {
   int pos = find(layer_names_.begin(), layer_names_.end(), layer_name)
       - layer_names_.begin();
-  return il_params_[pos];// 返回之前记录的  整数位比特数  2^n = max_， n = ceil(log2(max_)+1)
+  return il_params_[pos];
 }
 
-// 激活值输入 整数位比特数量
 int Quantization::GetIntegerLengthIn(const string layer_name) {
   int pos = find(layer_names_.begin(), layer_names_.end(), layer_name)
       - layer_names_.begin();
   return il_in_[pos];
 }
 
-// 激活之输出值 整数位比特数量
 int Quantization::GetIntegerLengthOut(const string layer_name) {
   int pos = find(layer_names_.begin(), layer_names_.end(), layer_name)
       - layer_names_.begin();
