@@ -762,6 +762,29 @@ message QuantizationParameter{
   // Integer-power-of-two weights
   optional int32 exp_min = 11 [default = -8];
   optional int32 exp_max = 12 [default = -1];
+  
+  //////////////// QuantizationParameter add new param =============
+// 获取 参数========================
+// NetParameter -> LayerParameter -> mutable_quantization_param()->conv_id();
+// 设置参数=========================
+// NetParameter -> LayerParameter -> mutable_quantization_param()->set_conv_id();
+// 写参数模型文件===================
+// WriteProtoToTextFile(param, model_quantized_);
+
+  // Integer of conv id
+  optional int32 conv_id = 13 [default = 16];
+  optional int32 conv_iter = 14 [default = 16];
+  
+  // special relu for limit activation range  激活层 数据统计参数=======
+  optional int32 relux_enable = 15 [default = 0];
+  optional float relux_ori_max = 16 [default = 0.0];
+  optional float relux_cur_max = 17 [default = 0.0];
+  optional float relux_ori_min = 18 [default = 0.0];
+  optional int32 relux_mode = 19 [default = 0];
+  optional int32 relux_cir = 20 [default = 500];
+  optional float relux_last_max = 21 [default = 0.0];
+  optional float relux_shrink_rate = 22 [default = 1.5];
+  
 }
 
 // 数据转换 镜像变形等================================================
