@@ -468,8 +468,98 @@ void Net<Dtype>::RangeInLayers(
       index++;
     }
   }
+  // 其他 方式统计 
+    
+    
 }
 
+/*
+/////  对各层 输入 输出 参数 进行 直方图统计======================
+template <typename Dtype>
+void Net<Dtype>::StsInLayers(
+vector<string>* layer_name,// 层名字
+vector<int>* fl_in,        // 层输入  用于计算 直方图统计 缩放
+vector<int>* fl_out,       // 层输出
+vector<int>* fl_param,     // 层参数
+vector< vector<long>* >* in_sts, // 二维指针数组  参数直方图统计======
+vector< vector<long>* >* out_sts, 
+vector< vector<long>* >* param_sts,
+vector<bool>* conv_layer, 
+int sts_num) 
+{
+
+  // Find maximal values.
+  int index = 0;
+  for (int layer_id = 0; layer_id < layers_.size(); ++layer_id) 
+  {
+    //  寻找卷积层 Convolution 和 全连接层 InnerProduct 
+    if (strcmp(layers_[layer_id]->type(), "Convolution") == 0 ||
+          strcmp(layers_[layer_id]->type(), "InnerProduct") == 0) 
+    {
+
+      // init
+      // suppose sts_num = 256
+      sts_num = 256;
+      if (in_sts->at(index)->size() == 0) // 未进行直方图统计先初始化======
+	  {
+          for (int i = 0; i < sts_num; i++) 
+		  {
+            in_sts->at(index)->push_back(0);
+            out_sts->at(index)->push_back(0);
+            param_sts->at(index)->push_back(0);
+          }
+      }
+
+      // floor when doing stats and outliers should no more than quantiles
+      int fin = fl_in->at(index);
+      int fout = fl_out->at(index);
+      int fprm = fl_param->at(index);
+      float ein = pow(2, fin);
+      float eout = pow(2, fout);
+      float eprm = pow(2, fprm);
+
+      LOG(INFO) << fin << " " << fout << " " << fprm << " " << ein << " " <<
+          eout << " " << eprm << " layer " << layer_id;
+
+      // sts input
+      Blob<Dtype>* blob = bottom_vecs_[layer_id][0];// 层输入 数据
+      const Dtype* data = blob->cpu_data();
+      int cnt = blob->count();// 数量
+      for (int i = 0; i < cnt; ++i) 
+      {
+        int val = (int)(data[i] * ein) + 128;// 计算值落在 0~255 哪一个区间
+        if (val > 255 ) val = 255;
+        if (val < 0 ) val = 0;
+        (in_sts->at(index))->at(val) += 1;// 直方图统计
+      }
+
+      // sts output
+      blob = top_vecs_[layer_id][0];
+      data = blob->cpu_data();
+      cnt = blob->count();
+      for (int i = 0; i < cnt; ++i) {
+        int val = (int)(data[i] * eout) + 128;
+        if (val > 255 ) val = 255;
+        if (val < 0 ) val = 0;
+        (out_sts->at(index))->at(val) += 1;
+      }
+
+      // sts weight
+      blob = &(*layers_[layer_id]->blobs()[0]);
+      data = blob->cpu_data();
+      cnt = blob->count();
+      for (int i = 0; i < cnt; ++i) {
+        int val = (int)(data[i] * eprm) + 128;
+        if (val > 255 ) val = 255;
+        if (val < 0 ) val = 0;
+        (param_sts->at(index))->at(val) += 1;
+      }
+
+      index++;
+    }
+  }
+}    
+*/    
 // Helper for Net::Init: add a new top blob to the net.
 template <typename Dtype>
 void Net<Dtype>::AppendTop(const NetParameter& param, const int layer_id,
