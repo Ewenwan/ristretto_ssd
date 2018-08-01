@@ -389,6 +389,34 @@ Dtype Net<Dtype>::findMax(Blob<Dtype>* blob)
   }
   return max_val;
 }
+
+// 最小值==================================
+template <typename Dtype>
+Dtype Net<Dtype>::findMin(Blob<Dtype>* blob) {
+  const Dtype* data = blob->cpu_data();
+  int cnt = blob->count();
+  Dtype min_val = (Dtype)+10;// 初始化+10
+  for (int i = 0; i < cnt; ++i)
+  {
+    // min=====
+    min_val = std::min(min_val, (Dtype)(data[i]));
+  }
+  return min_val;
+}
+
+// 最大值===================================
+template <typename Dtype>
+Dtype Net<Dtype>::findMaxNoAbs(Blob<Dtype>* blob) {
+  const Dtype* data = blob->cpu_data();
+  int cnt = blob->count();
+  Dtype max_val = (Dtype)-10;// 初始化 -10
+  for (int i = 0; i < cnt; ++i) 
+  {
+    //max======= 
+    max_val = std::max(max_val, (Dtype)(data[i]));
+  }
+  return max_val;
+}
     
 //////////////////////////////////////////////////////////////////////////
 // 遍历每一层 获取每一层 参数/输入/输出 数据中的 最大最小等值
