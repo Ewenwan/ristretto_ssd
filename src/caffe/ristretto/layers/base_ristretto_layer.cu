@@ -19,10 +19,13 @@ void BaseRistrettoLayer<Dtype>::QuantizeWeights_gpu(
     break;
   case QuantizationParameter_Precision_DYNAMIC_FIXED_POINT:
     Trim2FixedPoint_gpu(weight, cnt_weight, bw_params_, rounding, fl_params_);
+////// 偏置量化 去除 这里取得上下限是 卷积核w的 上下限，如果要量化，这里需要单独量化
+/*
     if (bias_term) {
       Trim2FixedPoint_gpu(weights_quantized[1]->mutable_gpu_data(),
           weights_quantized[1]->count(), bw_params_, rounding, fl_params_);
     }
+*/
     break;
   case QuantizationParameter_Precision_INTEGER_POWER_OF_2_WEIGHTS:
     Trim2IntegerPowerOf2_gpu(weight, cnt_weight, pow_2_min_exp_, pow_2_max_exp_,
