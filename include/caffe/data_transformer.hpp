@@ -12,6 +12,15 @@
 using google::protobuf::RepeatedPtrField;
 
 namespace caffe {
+ 
+/////////////// yolo  add BoxLabel///////////////////
+class BoxLabel {
+ public:
+  float class_label_;// id
+  float difficult_;  // 
+  float box_[4];     // 边框
+};
+//////////////////////////////////
 
 /**
  * @brief Applies common transformations to the input data, such as
