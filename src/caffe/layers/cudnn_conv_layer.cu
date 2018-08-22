@@ -14,7 +14,72 @@ void CuDNNConvolutionLayer<Dtype>::Forward_gpu(
   for (int i = 0; i < bottom.size(); ++i) {
     const Dtype* bottom_data = bottom[i]->gpu_data();
     Dtype* top_data = top[i]->mutable_gpu_data();
+// this->conv_iter_  是网络层参数，需要写入protxtx
+/*
+    // store input  保存初始相应层 的输入
+    if ( this->conv_iter_ == 0)// && this->conv_id_ == 2)
+    {
+      const Dtype* bottom_data_c = bottom[0]->cpu_data();
+      int bottom_size = bottom[0]->shape(0) *
+        bottom[0]->shape(1) *
+        bottom[0]->shape(2) *
+        bottom[0]->shape(3);
+      LOG(INFO) << "bottom_size: "<< bottom_size;
+      //LOG(INFO) << "w1: "<< weight_c[0];
 
+      char filename[12];
+      sprintf(filename, "Oinput_%d", this->conv_id_);
+
+      FILE * fp;
+      fp = fopen(filename, "wb");
+      if (fp !=NULL){
+        fwrite(bottom_data_c, 4, bottom_size, fp);
+      }
+      fclose(fp);
+    }
+*/
+
+/*
+    // store weight and bias  保存 权重和 偏置
+    if ( this->conv_iter_ == 0)// && this->conv_id_ == 2)
+    {
+      const Dtype* weight_c = this->blobs_[0]->cpu_data();
+      int w_size = this->blobs_[0]->shape(0) *
+        this->blobs_[0]->shape(1) *
+        this->blobs_[0]->shape(2) *
+        this->blobs_[0]->shape(3);
+      LOG(INFO) << "w_size: "<< w_size;
+      //LOG(INFO) << "w1: "<< weight_c[0];
+    
+      char filename[12];
+      sprintf(filename, "Oconv_%d", this->conv_id_);
+    
+      FILE * fp;
+      fp = fopen(filename, "wb");
+      if (fp !=NULL){
+        fwrite(weight_c, 4, w_size, fp);
+      }
+      fclose(fp);
+    }
+    if ( this->conv_iter_ == 0 && this->bias_term_)// && this->conv_id_ == 2)
+    {
+      const Dtype* bias_c = this->blobs_[1]->cpu_data();
+      int b_size = this->blobs_[1]->shape(0);
+      LOG(INFO) << "b_size: "<< b_size;
+      //LOG(INFO) << "w1: "<< weight_c[0];
+    
+      char filename[12];
+      sprintf(filename, "Obias_%d", this->conv_id_);
+    
+      FILE * fp;
+      fp = fopen(filename, "wb");
+      if (fp !=NULL){
+        fwrite(bias_c, 4, b_size, fp);
+      }
+      fclose(fp);
+    }
+*/
+      
     // Forward through cuDNN in parallel over groups.
     for (int g = 0; g < this->group_; g++) {
       // Filters.
