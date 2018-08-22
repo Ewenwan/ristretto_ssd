@@ -28,8 +28,10 @@ static boost::mutex bodies_mutex_;
 
 template <typename T>
 DataReader<T>::DataReader(const LayerParameter& param)
-    : queue_pair_(new QueuePair(  //
-        param.data_param().prefetch() * param.data_param().batch_size())) {
+    : queue_pair_(new QueuePair(  
+	// prefetch 预读取 batch的数量    batch一次读取图像数量
+        param.data_param().prefetch() * param.data_param().batch_size())) 
+{
   // Get or create a body
   boost::mutex::scoped_lock lock(bodies_mutex_);
   string key = source_key(param);
@@ -85,8 +87,11 @@ DataReader<T>::Body::~Body() {
 
 template <typename T>
 void DataReader<T>::Body::InternalThreadEntry() {
-  shared_ptr<db::DB> db(db::GetDB(param_.data_param().backend()));
-  db->Open(param_.data_param().source(), db::READ);
+  
+  shared_ptr<db::DB> db(db::GetDB(param_.data_param().backend()));// 数据库对象
+  db->Open(param_.data_param().source(), db::READ);// 打开数据库文件
+  
+  
   shared_ptr<db::Cursor> cursor(db->NewCursor());
   vector<shared_ptr<QueuePair> > qps;
   try {
