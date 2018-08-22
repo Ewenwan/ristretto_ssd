@@ -20,8 +20,12 @@ using caffe::Blob;
  */
 class Quantization {
 public:
+  
+// explicit 构造函数 避免隐式转换 String st = 10 // 编译不通过，不允许隐式的转换 
+// String st(10) // OK 分配10个字节的空字符串  String s3 = String ( 10 ); //OK 分配10个字节的空字符
   explicit Quantization(string model, string weights, string model_quantized,
       int iterations, string trimming_mode, double error_margin, string gpus, string net_type);
+  
   void QuantizeNet();
 private:
   void CheckWritePermissions(const string path);
