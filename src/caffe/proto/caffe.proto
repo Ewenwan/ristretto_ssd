@@ -611,6 +611,8 @@ message LayerParameter {
   /////////// 量化==========================================
   optional QuantizationParameter quantization_param = 147;
   ///////////===============================================
+  // 量化分组信息===========================================
+  optional QuantWgrpParameter quantwgrp_param = 217;
   
   optional RecurrentParameter recurrent_param = 146;
   optional ReductionParameter reduction_param = 136;
@@ -771,21 +773,47 @@ message QuantizationParameter{
 // 写参数模型文件===================
 // WriteProtoToTextFile(param, model_quantized_);
 
+ 
+  // IAO量化参数================
+  optional float scale_in = 13 [default = 1];
+  optional float scale_params = 14 [default = 1];
+  optional float scale_out = 15 [default = 1];
+  optional uint32 zero_point_in = 16 [default = 0];
+  optional uint32 zero_point_params = 17 [default = 0];
+  optional uint32 zero_point_out = 18 [default = 0];
+  
+  // 收缩激活参数===============
   // Integer of conv id
-  optional int32 conv_id = 13 [default = 16];
-  optional int32 conv_iter = 14 [default = 16];
+  optional int32 conv_id = 19 [default = 16];
+  optional int32 conv_iter = 20 [default = 16];
   
-  // special relu for limit activation range  激活层 数据统计参数=======
-  optional int32 relux_enable = 15 [default = 0];
-  optional float relux_ori_max = 16 [default = 0.0];
-  optional float relux_cur_max = 17 [default = 0.0];
-  optional float relux_ori_min = 18 [default = 0.0];
-  optional int32 relux_mode = 19 [default = 0];
-  optional int32 relux_cir = 20 [default = 500];
-  optional float relux_last_max = 21 [default = 0.0];
-  optional float relux_shrink_rate = 22 [default = 1.5];
-  
+  // special relu for limit activation range
+  optional int32 relux_enable = 21 [default = 0];
+  optional float relux_ori_max = 22 [default = 0.0];
+  optional float relux_cur_max = 23 [default = 0.0];
+  optional float relux_ori_min = 24 [default = 0.0];
+  optional int32 relux_mode = 25 [default = 0];
+  optional int32 relux_cir = 26 [default = 500];
+  optional float relux_last_max = 27 [default = 0.0];
+  optional float relux_shrink_rate = 28 [default = 1.5];
 }
+
+// 分组量化参数===========================
+message QuantWgrpParameter{
+  // wgrp parameters
+  optional bool wgrp_enable = 1 [default = false];
+  optional float w_l_q1 = 2 [default = 0.0];
+  optional float w_l_min = 3 [default = 0.0];
+  optional float w_r_q1 = 4 [default = 0.0];
+  optional float w_r_max = 5 [default = 0.0];
+  optional int32 w_fll = 6 [default = 16];
+  optional int32 w_flm = 7 [default = 16];
+  optional int32 w_flr = 8 [default = 16];
+  optional float w_l_b = 9 [default = 0.0];
+  optional float w_r_b = 10 [default = 0.0];
+}
+
+
 
 // 数据转换 镜像变形等================================================
 // Message that stores parameters used to apply transformation
