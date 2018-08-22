@@ -82,7 +82,7 @@ void CuDNNConvolutionLayer<Dtype>::Forward_gpu(
       
     // Forward through cuDNN in parallel over groups.
     for (int g = 0; g < this->group_; g++) {
-      // Filters.
+      // Filters.  卷积
       CUDNN_CHECK(cudnnConvolutionForward(handle_[g],
             cudnn::dataType<Dtype>::one,
             bottom_descs_[i], bottom_data + bottom_offset_ * g,
@@ -92,7 +92,7 @@ void CuDNNConvolutionLayer<Dtype>::Forward_gpu(
             cudnn::dataType<Dtype>::zero,
             top_descs_[i], top_data + top_offset_ * g));
 
-      // Bias.
+      // Bias.  加上 偏置
       if (this->bias_term_) {
         const Dtype* bias_data = this->blobs_[1]->gpu_data();
         CUDNN_CHECK(cudnnAddTensor(handle_[g],
@@ -107,7 +107,35 @@ void CuDNNConvolutionLayer<Dtype>::Forward_gpu(
     // stream, by launching an empty kernel into the default (null) stream.
     // NOLINT_NEXT_LINE(whitespace/operators)
     sync_conv_groups<<<1, 1>>>();
+      
+	/*
+    // store output  保存卷积后的输出===================
+    if ( this->conv_iter_ == 0)// && this->conv_id_ == 2)
+    {
+      const Dtype* top_data_c = top[0]->cpu_data();
+      int top_size = top[0]->shape(0) *
+        top[0]->shape(1) *
+        top[0]->shape(2) *
+        top[0]->shape(3);
+      LOG(INFO) << "top_size: "<< top_size;
+      LOG(INFO) << "conv_id: : "<< this->conv_id_;
+    
+      char filename[12];
+      sprintf(filename, "Otop_%d", this->conv_id_);
+    
+      FILE * fp;
+      fp = fopen(filename, "wb");
+      if (fp !=NULL){
+        fwrite(top_data_c, 4, top_size, fp);
+      }
+      fclose(fp);
+    }
+*/
+	
+	
   }
+  
+  this->conv_iter_++;// 一开始为0，++
 }
 
 template <typename Dtype>
